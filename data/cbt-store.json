@@ -5710,7 +5710,7 @@
       "startTime": "07:30",
       "durationMinutes": 90,
       "token": "5541",
-      "status": "draft",
+      "status": "closed",
       "randomizeQuestions": true,
       "randomizeOptions": true
     },

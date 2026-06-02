@@ -855,17 +855,40 @@ function ExamParticipants({ exams, students, attempts, onChanged }) {
           <input value={query} placeholder="Cari peserta..." onChange={(event) => { setQuery(event.target.value); setPage(1); }} />
         </label>
       </div>
-      <div className="participant-checks participant-checks-table">
-        {paged.items.map((student) => (
-          <label className="check-row" key={student.id}>
-            <input
-              type="checkbox"
-              checked={selectedStudentIds.has(student.id)}
-              onChange={(event) => toggleParticipant(student.id, event.target.checked)}
-            />
-            {student.name} <span>{student.className} | {formatElectiveSubjects(student).join(", ") || "Tanpa mapel pilihan"}</span>
-          </label>
-        ))}
+      <div className="table-wrap">
+        <table className="participant-table">
+          <thead>
+            <tr>
+              <th>Pilih</th>
+              <th>NIS</th>
+              <th>Nama</th>
+              <th>Kelas</th>
+              <th>Mapel Pilihan</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {paged.items.map((student) => {
+              const selected = selectedStudentIds.has(student.id);
+              return (
+                <tr key={student.id}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={(event) => toggleParticipant(student.id, event.target.checked)}
+                    />
+                  </td>
+                  <td><code>{student.nis}</code></td>
+                  <td><strong>{student.name}</strong></td>
+                  <td>{student.className}</td>
+                  <td>{formatElectiveSubjects(student).join(", ") || "-"}</td>
+                  <td><span className={selected ? "status-pill selected" : "status-pill"}>{selected ? "Dipilih" : "Belum"}</span></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
       <PaginationControls
         page={paged.currentPage}
