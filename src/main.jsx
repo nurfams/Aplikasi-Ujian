@@ -171,6 +171,53 @@ function downloadStudentTemplate() {
   URL.revokeObjectURL(url);
 }
 
+function getPageItems(items, page, pageSize) {
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const start = (safePage - 1) * pageSize;
+  return {
+    currentPage: safePage,
+    totalPages,
+    start,
+    end: Math.min(start + pageSize, items.length),
+    items: items.slice(start, start + pageSize)
+  };
+}
+
+function Modal({ title, icon: Icon, children, onClose, wide = false }) {
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true">
+      <section className={`modal-panel${wide ? " modal-wide" : ""}`}>
+        <div className="modal-head">
+          <PanelTitle icon={Icon} title={title} />
+          <button type="button" className="ghost-button" onClick={onClose}>Keluar</button>
+        </div>
+        {children}
+      </section>
+    </div>
+  );
+}
+
+function PaginationControls({ page, pageSize, total, onPageChange, onPageSizeChange }) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const start = total ? (Math.min(page, totalPages) - 1) * pageSize + 1 : 0;
+  const end = Math.min(Math.min(page, totalPages) * pageSize, total);
+
+  return (
+    <div className="pagination-bar">
+      <span>{start}-{end} dari {total} data</span>
+      <div className="pagination-actions">
+        <select value={pageSize} onChange={(event) => onPageSizeChange(Number(event.target.value))}>
+          {[25, 50, 100].map((size) => <option value={size} key={size}>{size}/halaman</option>)}
+        </select>
+        <button type="button" className="ghost-button" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>Sebelumnya</button>
+        <code>{Math.min(page, totalPages)} / {totalPages}</code>
+        <button type="button" className="ghost-button" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}>Berikutnya</button>
+      </div>
+    </div>
+  );
+}
+
 function StatCard({ icon: Icon, label, value }) {
   return (
     <div className="stat-card">
@@ -284,17 +331,21 @@ function AdminDashboard({ summary, students, exams, violations }) {
   );
 }
 
-function StudentManager({ students, onChanged }) {
+function StudentManager({ students, onChanged, onExit }) {
   const emptyForm = { nis: "", nisn: "", name: "", gender: "", username: "", password: "", className: "", room: "", session: "", mapelPilihan1: "", mapelPilihan2: "", mapelPilihan3: "", mapelPilihan4: "", mapelPilihan5: "" };
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState("");
   const [query, setQuery] = useState("");
   const [notice, setNotice] = useState("");
+  const [modal, setModal] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
 
   const filtered = students.filter((student) => {
     const haystack = `${student.nis} ${student.name} ${student.username} ${student.className} ${formatElectiveSubjects(student).join(" ")} ${student.room} ${student.session}`.toLowerCase();
     return haystack.includes(query.toLowerCase());
   });
+  const paged = getPageItems(filtered, page, pageSize);
 
   function edit(student) {
     setEditingId(student.id);
@@ -316,6 +367,7 @@ function StudentManager({ students, onChanged }) {
       mapelPilihan5: electives[4] || ""
     });
     setNotice("");
+    setModal("form");
   }
 
   function reset() {
@@ -345,6 +397,7 @@ function StudentManager({ students, onChanged }) {
       setNotice("Data siswa berhasil ditambahkan.");
     }
     reset();
+    setModal("");
     onChanged();
   }
 
@@ -365,113 +418,26 @@ function StudentManager({ students, onChanged }) {
     const result = await api("/students/bulk", { method: "POST", body: JSON.stringify({ students: rows }) });
     setNotice(`Import selesai: ${result.created} baru, ${result.updated} diperbarui, ${result.skipped} dilewati.`);
     event.target.value = "";
+    setModal("");
     onChanged();
   }
 
   return (
-    <div className="content-grid student-manager">
+    <div className="page-stack">
       <section className="panel">
-        <PanelTitle icon={editingId ? Save : Plus} title={editingId ? "Edit Siswa" : "Tambah Siswa"} />
-        <form className="student-form" onSubmit={submit}>
-          <div className="inline-fields">
-            <label>
-              NIS
-              <input value={form.nis} onChange={(event) => setForm({ ...form, nis: event.target.value })} required />
-            </label>
-            <label>
-              NISN
-              <input value={form.nisn} onChange={(event) => setForm({ ...form, nisn: event.target.value })} />
-            </label>
-          </div>
-          <div className="inline-fields">
-            <label>
-              Kelas
-              <input value={form.className} onChange={(event) => setForm({ ...form, className: event.target.value })} required />
-            </label>
-            <label>
-              L/P
-              <input value={form.gender} onChange={(event) => setForm({ ...form, gender: event.target.value.toUpperCase() })} />
-            </label>
-          </div>
-          <label>
-            Nama Siswa
-            <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
-          </label>
-          <div className="inline-fields">
-            <label>
-              Mapel Pilihan 1
-              <input value={form.mapelPilihan1} placeholder="Contoh: Informatika 2" onChange={(event) => setForm({ ...form, mapelPilihan1: event.target.value })} />
-            </label>
-            <label>
-              Mapel Pilihan 2
-              <input value={form.mapelPilihan2} placeholder="Contoh: Sejarah TL 2" onChange={(event) => setForm({ ...form, mapelPilihan2: event.target.value })} />
-            </label>
-          </div>
-          <div className="inline-fields">
-            <label>
-              Mapel Pilihan 3
-              <input value={form.mapelPilihan3} onChange={(event) => setForm({ ...form, mapelPilihan3: event.target.value })} />
-            </label>
-            <label>
-              Mapel Pilihan 4
-              <input value={form.mapelPilihan4} onChange={(event) => setForm({ ...form, mapelPilihan4: event.target.value })} />
-            </label>
-            <label>
-              Mapel Pilihan 5
-              <input value={form.mapelPilihan5} onChange={(event) => setForm({ ...form, mapelPilihan5: event.target.value })} />
-            </label>
-          </div>
-          <div className="inline-fields">
-            <label>
-              Username
-              <input value={form.username} placeholder="Default NIS" onChange={(event) => setForm({ ...form, username: event.target.value })} />
-            </label>
-            <label>
-              Password
-              <input value={form.password} placeholder="Default NIS" onChange={(event) => setForm({ ...form, password: event.target.value })} />
-            </label>
-          </div>
-          <div className="inline-fields">
-            <label>
-              Ruang
-              <input value={form.room} onChange={(event) => setForm({ ...form, room: event.target.value })} />
-            </label>
-            <label>
-              Sesi
-              <input value={form.session} onChange={(event) => setForm({ ...form, session: event.target.value })} />
-            </label>
-          </div>
-          <div className="form-actions">
-            <button type="submit"><Save size={18} /> {editingId ? "Simpan Perubahan" : "Tambah Siswa"}</button>
-            {editingId ? <button type="button" className="ghost-button" onClick={reset}>Batal</button> : null}
-          </div>
-        </form>
-        <div className="import-box">
-          <strong>Import Excel/CSV</strong>
-          <p>Header yang didukung: `nis`, `nisn`, `name`, `gender`, `className`, `username`, `password`, `room`, `session`, `Mapel Pilihan 1`, sampai `Mapel Pilihan 5`.</p>
-          <p>Gunakan file `.xlsx` atau `.csv`. Jika file masih `.xls` lama, buka di Excel lalu `Save As` menjadi `.xlsx` terlebih dahulu.</p>
-          <div className="sample-table">
-            <div>nis</div><div>nisn</div><div>name</div><div>className</div><div>Mapel Pilihan 1</div><div>Mapel Pilihan 2</div>
-            <div>10676</div><div>0062721508</div><div>AGISFA ROCHMANY ALFATH</div><div>XII.2</div><div>Informatika 2</div><div>Sejarah TL 2</div>
-          </div>
-          <button type="button" className="ghost-button" onClick={downloadStudentTemplate}><Upload size={18} /> Download Contoh CSV</button>
-          <label className="file-button">
-            <Upload size={18} />
-            Pilih File
-            <input type="file" accept=".xlsx,.csv" onChange={importFile} />
-          </label>
-        </div>
-        {notice ? <div className="success-box">{notice}</div> : null}
-      </section>
-
-      <section className="panel span-wide">
         <div className="panel-toolbar">
-          <PanelTitle icon={Users} title="Daftar Siswa" />
+          <div className="toolbar-actions">
+            <button type="button" onClick={() => setModal("bulk")}><Upload size={18} /> Upload Bulk</button>
+            <button type="button" onClick={() => { reset(); setModal("form"); }}><Plus size={18} /> Tambah Siswa</button>
+            <button type="button" className="ghost-button" onClick={onExit}>Keluar</button>
+          </div>
           <label className="search-box">
             <Search size={16} />
-            <input value={query} placeholder="Cari siswa..." onChange={(event) => setQuery(event.target.value)} />
+            <input value={query} placeholder="Cari siswa..." onChange={(event) => { setQuery(event.target.value); setPage(1); }} />
           </label>
         </div>
+        <PanelTitle icon={Users} title="Daftar Siswa" />
+        {notice ? <div className="success-box">{notice}</div> : null}
         <div className="table-wrap">
           <table>
             <thead>
@@ -493,7 +459,7 @@ function StudentManager({ students, onChanged }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((student) => (
+              {paged.items.map((student) => (
                 <tr key={student.id}>
                   <td>{student.nis}</td>
                   <td>{student.nisn || "-"}</td>
@@ -519,7 +485,71 @@ function StudentManager({ students, onChanged }) {
             </tbody>
           </table>
         </div>
+        <PaginationControls
+          page={paged.currentPage}
+          pageSize={pageSize}
+          total={filtered.length}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+        />
       </section>
+
+      {modal === "form" ? (
+        <Modal title={editingId ? "Edit Siswa" : "Tambah Siswa"} icon={editingId ? Save : Plus} onClose={() => { reset(); setModal(""); }} wide>
+          <form className="student-form" onSubmit={submit}>
+            <div className="inline-fields">
+              <label>NIS<input value={form.nis} onChange={(event) => setForm({ ...form, nis: event.target.value })} required /></label>
+              <label>NISN<input value={form.nisn} onChange={(event) => setForm({ ...form, nisn: event.target.value })} /></label>
+            </div>
+            <div className="inline-fields">
+              <label>Kelas<input value={form.className} onChange={(event) => setForm({ ...form, className: event.target.value })} required /></label>
+              <label>L/P<input value={form.gender} onChange={(event) => setForm({ ...form, gender: event.target.value.toUpperCase() })} /></label>
+            </div>
+            <label>Nama Siswa<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></label>
+            <div className="inline-fields">
+              <label>Mapel Pilihan 1<input value={form.mapelPilihan1} placeholder="Contoh: Informatika 2" onChange={(event) => setForm({ ...form, mapelPilihan1: event.target.value })} /></label>
+              <label>Mapel Pilihan 2<input value={form.mapelPilihan2} placeholder="Contoh: Sejarah TL 2" onChange={(event) => setForm({ ...form, mapelPilihan2: event.target.value })} /></label>
+            </div>
+            <div className="inline-fields">
+              <label>Mapel Pilihan 3<input value={form.mapelPilihan3} onChange={(event) => setForm({ ...form, mapelPilihan3: event.target.value })} /></label>
+              <label>Mapel Pilihan 4<input value={form.mapelPilihan4} onChange={(event) => setForm({ ...form, mapelPilihan4: event.target.value })} /></label>
+              <label>Mapel Pilihan 5<input value={form.mapelPilihan5} onChange={(event) => setForm({ ...form, mapelPilihan5: event.target.value })} /></label>
+            </div>
+            <div className="inline-fields">
+              <label>Username<input value={form.username} placeholder="Default NIS" onChange={(event) => setForm({ ...form, username: event.target.value })} /></label>
+              <label>Password<input value={form.password} placeholder="Default NIS" onChange={(event) => setForm({ ...form, password: event.target.value })} /></label>
+            </div>
+            <div className="inline-fields">
+              <label>Ruang<input value={form.room} onChange={(event) => setForm({ ...form, room: event.target.value })} /></label>
+              <label>Sesi<input value={form.session} onChange={(event) => setForm({ ...form, session: event.target.value })} /></label>
+            </div>
+            <div className="form-actions">
+              <button type="submit"><Save size={18} /> {editingId ? "Simpan Perubahan" : "Tambah Siswa"}</button>
+              <button type="button" className="ghost-button" onClick={() => { reset(); setModal(""); }}>Batal</button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {modal === "bulk" ? (
+        <Modal title="Upload Bulk Siswa" icon={Upload} onClose={() => setModal("")} wide>
+          <div className="import-box">
+            <strong>Import Excel/CSV</strong>
+            <p>Header yang didukung: `nis`, `nisn`, `name`, `gender`, `className`, `username`, `password`, `room`, `session`, `Mapel Pilihan 1`, sampai `Mapel Pilihan 5`.</p>
+            <p>Gunakan file `.xlsx` atau `.csv`. Jika file masih `.xls` lama, buka di Excel lalu `Save As` menjadi `.xlsx` terlebih dahulu.</p>
+            <div className="sample-table">
+              <div>nis</div><div>nisn</div><div>name</div><div>className</div><div>Mapel Pilihan 1</div><div>Mapel Pilihan 2</div>
+              <div>10676</div><div>0062721508</div><div>AGISFA ROCHMANY ALFATH</div><div>XII.2</div><div>Informatika 2</div><div>Sejarah TL 2</div>
+            </div>
+            <button type="button" className="ghost-button" onClick={downloadStudentTemplate}><Upload size={18} /> Download Contoh CSV</button>
+            <label className="file-button">
+              <Upload size={18} />
+              Pilih File
+              <input type="file" accept=".xlsx,.csv" onChange={importFile} />
+            </label>
+          </div>
+        </Modal>
+      ) : null}
     </div>
   );
 }
@@ -527,11 +557,14 @@ function StudentManager({ students, onChanged }) {
 function ParticipantCards({ students }) {
   const [qrMap, setQrMap] = useState({});
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
 
   const filtered = students.filter((student) => {
-    const text = `${student.nis} ${student.name} ${student.className} ${student.room} ${student.session}`.toLowerCase();
+    const text = `${student.nis} ${student.name} ${student.className} ${formatElectiveSubjects(student).join(" ")} ${student.room} ${student.session}`.toLowerCase();
     return text.includes(query.toLowerCase());
   });
+  const paged = getPageItems(filtered, page, pageSize);
 
   useEffect(() => {
     let alive = true;
@@ -547,6 +580,29 @@ function ParticipantCards({ students }) {
     return () => { alive = false; };
   }, [students]);
 
+  function Card({ student }) {
+    return (
+      <article className="print-card" key={student.id}>
+        <div className="print-card-head">
+          <div>
+            <span>CBT SMAN 94 Jakarta</span>
+            <strong>Kartu Peserta Ujian</strong>
+          </div>
+          {qrMap[student.id] ? <img src={qrMap[student.id]} alt={`QR ${student.name}`} /> : <div className="qr-placeholder" />}
+        </div>
+        <div className="student-name">{student.name}</div>
+        <div className="print-fields">
+          <span>NIS</span><strong>{student.nis}</strong>
+          <span>Kelas</span><strong>{student.className}</strong>
+          <span>Ruang</span><strong>{student.room}</strong>
+          <span>Sesi</span><strong>{student.session}</strong>
+          <span>Username</span><code>{student.username}</code>
+          <span>Password</span><code>{student.password}</code>
+        </div>
+      </article>
+    );
+  }
+
   return (
     <div className="cards-page">
       <section className="panel no-print">
@@ -555,40 +611,33 @@ function ParticipantCards({ students }) {
           <div className="print-actions">
             <label className="search-box">
               <Search size={16} />
-              <input value={query} placeholder="Filter kartu..." onChange={(event) => setQuery(event.target.value)} />
+              <input value={query} placeholder="Filter kartu..." onChange={(event) => { setQuery(event.target.value); setPage(1); }} />
             </label>
             <button type="button" onClick={() => window.print()}><Printer size={18} /> Cetak</button>
           </div>
         </div>
-        <p className="muted">Kartu peserta siap dicetak dari browser. Gunakan mode landscape jika ingin lebih banyak kartu per halaman.</p>
+        <p className="muted">Layar memakai pagination agar browser ringan. Saat klik cetak, semua kartu sesuai filter akan ikut tercetak. Default cetak disiapkan sekitar 15 kartu per A4.</p>
       </section>
-      <section className="print-grid">
-        {filtered.map((student) => (
-          <article className="print-card" key={student.id}>
-            <div className="print-card-head">
-              <div>
-                <span>CBT SMAN 94 Jakarta</span>
-                <strong>Kartu Peserta Ujian</strong>
-              </div>
-              {qrMap[student.id] ? <img src={qrMap[student.id]} alt={`QR ${student.name}`} /> : <div className="qr-placeholder" />}
-            </div>
-            <div className="student-name">{student.name}</div>
-            <div className="print-fields">
-              <span>NIS</span><strong>{student.nis}</strong>
-              <span>Kelas</span><strong>{student.className}</strong>
-              <span>Ruang</span><strong>{student.room}</strong>
-              <span>Sesi</span><strong>{student.session}</strong>
-              <span>Username</span><code>{student.username}</code>
-              <span>Password</span><code>{student.password}</code>
-            </div>
-          </article>
-        ))}
+      <section className="print-grid screen-card-grid">
+        {paged.items.map((student) => <Card student={student} key={student.id} />)}
+      </section>
+      <div className="no-print">
+        <PaginationControls
+          page={paged.currentPage}
+          pageSize={pageSize}
+          total={filtered.length}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+        />
+      </div>
+      <section className="print-grid print-only">
+        {filtered.map((student) => <Card student={student} key={student.id} />)}
       </section>
     </div>
   );
 }
 
-function ExamManager({ exams, students, attempts, onChanged }) {
+function ExamManager({ exams, onChanged, onExit }) {
   const emptyForm = {
     code: "",
     subject: "",
@@ -602,24 +651,11 @@ function ExamManager({ exams, students, attempts, onChanged }) {
   };
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState("");
-  const [selectedExamId, setSelectedExamId] = useState(exams[0]?.id || "");
-  const [participantFilter, setParticipantFilter] = useState("");
   const [notice, setNotice] = useState("");
-
-  useEffect(() => {
-    if (!selectedExamId && exams[0]) setSelectedExamId(exams[0].id);
-  }, [exams, selectedExamId]);
-
-  const selectedExam = exams.find((exam) => exam.id === selectedExamId);
-  const selectedStudentIds = new Set(attempts.filter((attempt) => attempt.examId === selectedExamId).map((attempt) => attempt.studentId));
-  const electiveOptions = [...new Set(students.flatMap((student) => formatElectiveSubjects(student)))].sort((a, b) => a.localeCompare(b, "id"));
-  const filteredStudents = participantFilter
-    ? students.filter((student) => formatElectiveSubjects(student).includes(participantFilter))
-    : students;
+  const [modalOpen, setModalOpen] = useState(false);
 
   function edit(exam) {
     setEditingId(exam.id);
-    setSelectedExamId(exam.id);
     setForm({
       code: exam.code,
       subject: exam.subject,
@@ -631,6 +667,8 @@ function ExamManager({ exams, students, attempts, onChanged }) {
       randomizeQuestions: exam.randomizeQuestions,
       randomizeOptions: exam.randomizeOptions
     });
+    setNotice("");
+    setModalOpen(true);
   }
 
   function reset() {
@@ -649,6 +687,7 @@ function ExamManager({ exams, students, attempts, onChanged }) {
       setNotice("Ujian baru berhasil dibuat.");
     }
     reset();
+    setModalOpen(false);
     onChanged();
   }
 
@@ -666,90 +705,17 @@ function ExamManager({ exams, students, attempts, onChanged }) {
     onChanged();
   }
 
-  async function toggleParticipant(studentId, checked) {
-    if (!selectedExam) return;
-    const current = new Set(selectedStudentIds);
-    if (checked) current.add(studentId);
-    else current.delete(studentId);
-    await api(`/exams/${selectedExam.id}/participants`, {
-      method: "PUT",
-      body: JSON.stringify({ studentIds: [...current] })
-    });
-    onChanged();
-  }
-
-  async function selectAllParticipants() {
-    if (!selectedExam) return;
-    const nextStudentIds = new Set(selectedStudentIds);
-    for (const student of filteredStudents) nextStudentIds.add(student.id);
-    await api(`/exams/${selectedExam.id}/participants`, {
-      method: "PUT",
-      body: JSON.stringify({ studentIds: [...nextStudentIds] })
-    });
-    onChanged();
-  }
-
   return (
-    <div className="content-grid student-manager">
+    <div className="page-stack">
       <section className="panel">
-        <PanelTitle icon={CalendarDays} title={editingId ? "Edit Ujian" : "Buat Ujian"} />
-        <form className="student-form" onSubmit={submit}>
-          <div className="inline-fields">
-            <label>
-              Kode Ujian
-              <input value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value })} required />
-            </label>
-            <label>
-              Token
-              <input value={form.token} onChange={(event) => setForm({ ...form, token: event.target.value.toUpperCase() })} required />
-            </label>
+        <div className="panel-toolbar">
+          <div className="toolbar-actions">
+            <button type="button" onClick={() => { reset(); setModalOpen(true); }}><Plus size={18} /> Tambah Ujian</button>
+            <button type="button" className="ghost-button" onClick={onExit}>Keluar</button>
           </div>
-          <label>
-            Mata Pelajaran
-            <input value={form.subject} onChange={(event) => setForm({ ...form, subject: event.target.value })} required />
-          </label>
-          <div className="inline-fields">
-            <label>
-              Tanggal
-              <input type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} required />
-            </label>
-            <label>
-              Jam Mulai
-              <input type="time" value={form.startTime} onChange={(event) => setForm({ ...form, startTime: event.target.value })} required />
-            </label>
-          </div>
-          <div className="inline-fields">
-            <label>
-              Durasi Menit
-              <input type="number" min="1" value={form.durationMinutes} onChange={(event) => setForm({ ...form, durationMinutes: event.target.value })} />
-            </label>
-            <label>
-              Status
-              <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>
-                <option value="draft">Draft</option>
-                <option value="published">Published</option>
-                <option value="closed">Closed</option>
-              </select>
-            </label>
-          </div>
-          <label className="check-row">
-            <input type="checkbox" checked={form.randomizeQuestions} onChange={(event) => setForm({ ...form, randomizeQuestions: event.target.checked })} />
-            Acak soal
-          </label>
-          <label className="check-row">
-            <input type="checkbox" checked={form.randomizeOptions} onChange={(event) => setForm({ ...form, randomizeOptions: event.target.checked })} />
-            Acak opsi jawaban
-          </label>
-          <div className="form-actions">
-            <button type="submit"><Save size={18} /> {editingId ? "Simpan Ujian" : "Buat Ujian"}</button>
-            {editingId ? <button type="button" className="ghost-button" onClick={reset}>Batal</button> : null}
-          </div>
-        </form>
-        {notice ? <div className="success-box">{notice}</div> : null}
-      </section>
-
-      <section className="panel span-wide">
+        </div>
         <PanelTitle icon={ClipboardList} title="Daftar Ujian" />
+        {notice ? <div className="success-box">{notice}</div> : null}
         <div className="table-wrap">
           <table>
             <thead>
@@ -786,35 +752,129 @@ function ExamManager({ exams, students, attempts, onChanged }) {
             </tbody>
           </table>
         </div>
-
-        <div className="participant-assign">
-          <div className="panel-toolbar">
-            <PanelTitle icon={Users} title="Peserta Ujian" />
-            <select value={selectedExamId} onChange={(event) => setSelectedExamId(event.target.value)}>
-              {exams.map((exam) => <option value={exam.id} key={exam.id}>{exam.code} - {exam.subject}</option>)}
-            </select>
-            <select value={participantFilter} onChange={(event) => setParticipantFilter(event.target.value)}>
-              <option value="">Semua siswa</option>
-              {electiveOptions.map((subject) => <option value={subject} key={subject}>{subject}</option>)}
-            </select>
-            <button type="button" className="ghost-button" onClick={selectAllParticipants}>Pilih Semua Filter</button>
-          </div>
-          <p className="muted">{filteredStudents.length} siswa tampil dari filter peserta saat ini.</p>
-          <div className="participant-checks">
-            {filteredStudents.map((student) => (
-              <label className="check-row" key={student.id}>
-                <input
-                  type="checkbox"
-                  checked={selectedStudentIds.has(student.id)}
-                  onChange={(event) => toggleParticipant(student.id, event.target.checked)}
-                />
-                {student.name} <span>{student.className} | {formatElectiveSubjects(student).join(", ") || "Tanpa mapel pilihan"}</span>
-              </label>
-            ))}
-          </div>
-        </div>
       </section>
+
+      {modalOpen ? (
+        <Modal title={editingId ? "Edit Ujian" : "Tambah Ujian"} icon={CalendarDays} onClose={() => { reset(); setModalOpen(false); }} wide>
+          <form className="student-form" onSubmit={submit}>
+            <div className="inline-fields">
+              <label>Kode Ujian<input value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value })} required /></label>
+              <label>Token<input value={form.token} onChange={(event) => setForm({ ...form, token: event.target.value.toUpperCase() })} required /></label>
+            </div>
+            <label>Mata Pelajaran<input value={form.subject} onChange={(event) => setForm({ ...form, subject: event.target.value })} required /></label>
+            <div className="inline-fields">
+              <label>Tanggal<input type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} required /></label>
+              <label>Jam Mulai<input type="time" value={form.startTime} onChange={(event) => setForm({ ...form, startTime: event.target.value })} required /></label>
+            </div>
+            <div className="inline-fields">
+              <label>Durasi Menit<input type="number" min="1" value={form.durationMinutes} onChange={(event) => setForm({ ...form, durationMinutes: event.target.value })} /></label>
+              <label>Status
+                <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>
+                  <option value="draft">Draft</option>
+                  <option value="published">Published</option>
+                  <option value="closed">Closed</option>
+                </select>
+              </label>
+            </div>
+            <label className="check-row"><input type="checkbox" checked={form.randomizeQuestions} onChange={(event) => setForm({ ...form, randomizeQuestions: event.target.checked })} /> Acak soal</label>
+            <label className="check-row"><input type="checkbox" checked={form.randomizeOptions} onChange={(event) => setForm({ ...form, randomizeOptions: event.target.checked })} /> Acak opsi jawaban</label>
+            <div className="form-actions">
+              <button type="submit"><Save size={18} /> {editingId ? "Simpan Ujian" : "Tambah Ujian"}</button>
+              <button type="button" className="ghost-button" onClick={() => { reset(); setModalOpen(false); }}>Batal</button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
     </div>
+  );
+}
+
+function ExamParticipants({ exams, students, attempts, onChanged }) {
+  const [selectedExamId, setSelectedExamId] = useState(exams[0]?.id || "");
+  const [participantFilter, setParticipantFilter] = useState("");
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+
+  useEffect(() => {
+    if (!selectedExamId && exams[0]) setSelectedExamId(exams[0].id);
+  }, [exams, selectedExamId]);
+
+  const selectedExam = exams.find((exam) => exam.id === selectedExamId);
+  const selectedStudentIds = new Set(attempts.filter((attempt) => attempt.examId === selectedExamId).map((attempt) => attempt.studentId));
+  const electiveOptions = [...new Set(students.flatMap((student) => formatElectiveSubjects(student)))].sort((a, b) => a.localeCompare(b, "id"));
+  const filteredStudents = students.filter((student) => {
+    const matchesSubject = participantFilter ? formatElectiveSubjects(student).includes(participantFilter) : true;
+    const text = `${student.nis} ${student.name} ${student.className} ${formatElectiveSubjects(student).join(" ")}`.toLowerCase();
+    return matchesSubject && text.includes(query.toLowerCase());
+  });
+  const paged = getPageItems(filteredStudents, page, pageSize);
+
+  async function toggleParticipant(studentId, checked) {
+    if (!selectedExam) return;
+    const current = new Set(selectedStudentIds);
+    if (checked) current.add(studentId);
+    else current.delete(studentId);
+    await api(`/exams/${selectedExam.id}/participants`, {
+      method: "PUT",
+      body: JSON.stringify({ studentIds: [...current] })
+    });
+    onChanged();
+  }
+
+  async function selectAllParticipants() {
+    if (!selectedExam) return;
+    const nextStudentIds = new Set(selectedStudentIds);
+    for (const student of filteredStudents) nextStudentIds.add(student.id);
+    await api(`/exams/${selectedExam.id}/participants`, {
+      method: "PUT",
+      body: JSON.stringify({ studentIds: [...nextStudentIds] })
+    });
+    onChanged();
+  }
+
+  return (
+    <section className="panel">
+      <div className="panel-toolbar">
+        <PanelTitle icon={Users} title="Peserta Ujian" />
+        <div className="toolbar-actions">
+          <select value={selectedExamId} onChange={(event) => { setSelectedExamId(event.target.value); setPage(1); }}>
+            {exams.map((exam) => <option value={exam.id} key={exam.id}>{exam.code} - {exam.subject}</option>)}
+          </select>
+          <select value={participantFilter} onChange={(event) => { setParticipantFilter(event.target.value); setPage(1); }}>
+            <option value="">Semua siswa</option>
+            {electiveOptions.map((subject) => <option value={subject} key={subject}>{subject}</option>)}
+          </select>
+          <button type="button" className="ghost-button" onClick={selectAllParticipants}>Pilih Semua Filter</button>
+        </div>
+      </div>
+      <div className="panel-toolbar">
+        <p className="muted">{filteredStudents.length} siswa tampil. {selectedStudentIds.size} peserta sudah dipilih untuk ujian ini.</p>
+        <label className="search-box">
+          <Search size={16} />
+          <input value={query} placeholder="Cari peserta..." onChange={(event) => { setQuery(event.target.value); setPage(1); }} />
+        </label>
+      </div>
+      <div className="participant-checks participant-checks-table">
+        {paged.items.map((student) => (
+          <label className="check-row" key={student.id}>
+            <input
+              type="checkbox"
+              checked={selectedStudentIds.has(student.id)}
+              onChange={(event) => toggleParticipant(student.id, event.target.checked)}
+            />
+            {student.name} <span>{student.className} | {formatElectiveSubjects(student).join(", ") || "Tanpa mapel pilihan"}</span>
+          </label>
+        ))}
+      </div>
+      <PaginationControls
+        page={paged.currentPage}
+        pageSize={pageSize}
+        total={filteredStudents.length}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+      />
+    </section>
   );
 }
 
@@ -1227,6 +1287,7 @@ function App() {
         { view: "students", label: "Data Siswa", icon: Users },
         { view: "cards", label: "Kartu Peserta", icon: CreditCard },
         { view: "exams", label: "Ujian", icon: ClipboardList },
+        { view: "examParticipants", label: "Peserta Ujian", icon: Users },
         { view: "results", label: "Hasil", icon: CheckCircle2 },
         { view: "monitoring", label: "Monitoring", icon: MonitorSmartphone }
       ];
@@ -1287,13 +1348,16 @@ function App() {
       return <StudentDashboard user={user} exams={exams} />;
     }
     if (view === "students") {
-      return <StudentManager students={students} onChanged={refresh} />;
+      return <StudentManager students={students} onChanged={refresh} onExit={() => setView("dashboard")} />;
     }
     if (view === "cards") {
       return <ParticipantCards students={students} />;
     }
     if (view === "exams") {
-      return <ExamManager exams={exams} students={students} attempts={attempts} onChanged={refresh} />;
+      return <ExamManager exams={exams} onChanged={refresh} onExit={() => setView("dashboard")} />;
+    }
+    if (view === "examParticipants") {
+      return <ExamParticipants exams={exams} students={students} attempts={attempts} onChanged={refresh} />;
     }
     if (view === "results") {
       return <ResultsDashboard results={results} />;

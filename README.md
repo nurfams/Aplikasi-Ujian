@@ -138,6 +138,27 @@ XII.6: 36
 Siswa dengan mapel pilihan: 216
 ```
 
+## Fitur tahap 7
+
+- Data Siswa tampil sebagai daftar utama tanpa form permanen di samping.
+- Tambah siswa manual memakai modal `Tambah Siswa`.
+- Upload massal siswa memakai modal `Upload Bulk`.
+- Daftar siswa memakai pagination default 50 data per halaman.
+- Kartu peserta memakai pagination saat dilihat di layar.
+- Saat cetak kartu, semua kartu sesuai filter ikut dicetak.
+- Layout cetak kartu peserta disiapkan sekitar 15 kartu per A4.
+- Halaman Ujian hanya berisi daftar ujian dan modal tambah/edit ujian.
+- Peserta Ujian dipisah ke halaman/menu tersendiri.
+
+Catatan PostgreSQL:
+
+```text
+Saat ini mode data testing masih memakai data/cbt-store.json.
+Adapter PostgreSQL sudah tersedia, tetapi aktivasi penuh sebaiknya dilakukan setelah struktur data utama stabil.
+Alasannya: data siswa, mapel pilihan, peserta ujian, kartu, soal, dan hasil masih terus dirapikan.
+Setelah alur admin/guru/siswa matang, DATABASE_URL dapat diisi di .env dan schema PostgreSQL dapat dijadikan sumber data utama.
+```
+
 Format import siswa yang disarankan:
 
 ```text

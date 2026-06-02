@@ -249,6 +249,11 @@ code {
   grid-template-columns: minmax(0, 1fr) minmax(320px, 0.8fr);
 }
 
+.page-stack {
+  display: grid;
+  gap: 16px;
+}
+
 .student-manager {
   grid-template-columns: minmax(320px, 0.8fr) minmax(0, 1.4fr);
 }
@@ -309,7 +314,11 @@ code {
 .form-actions,
 .row-actions,
 .search-box,
-.file-button {
+.file-button,
+.toolbar-actions,
+.pagination-bar,
+.pagination-actions,
+.modal-head {
   align-items: center;
   display: flex;
 }
@@ -325,6 +334,11 @@ code {
 }
 
 .print-actions {
+  gap: 10px;
+}
+
+.toolbar-actions {
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -429,6 +443,65 @@ code {
 }
 
 .file-button input {
+  display: none;
+}
+
+.modal-backdrop {
+  align-items: flex-start;
+  background: rgba(15, 23, 42, 0.5);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  overflow: auto;
+  padding: 28px;
+  position: fixed;
+  z-index: 20;
+}
+
+.modal-panel {
+  background: white;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.25);
+  max-width: 620px;
+  padding: 18px;
+  width: min(100%, 620px);
+}
+
+.modal-wide {
+  max-width: 820px;
+  width: min(100%, 820px);
+}
+
+.modal-head {
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.modal-head .panel-title {
+  margin-bottom: 0;
+}
+
+.pagination-bar {
+  border-top: 1px solid #e2e8f0;
+  color: #64748b;
+  font-size: 13px;
+  justify-content: space-between;
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
+.pagination-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pagination-actions select {
+  min-height: 36px;
+  width: auto;
+}
+
+.print-only {
   display: none;
 }
 
@@ -644,6 +717,10 @@ th {
   padding-right: 4px;
 }
 
+.participant-checks-table {
+  max-height: 560px;
+}
+
 .token-row {
   display: grid;
   gap: 8px;
@@ -775,7 +852,9 @@ th {
   }
 
   .panel-toolbar,
-  .print-actions {
+  .print-actions,
+  .pagination-bar,
+  .modal-head {
     align-items: stretch;
     flex-direction: column;
   }
@@ -787,14 +866,24 @@ th {
 }
 
 @media print {
+  @page {
+    margin: 8mm;
+    size: A4 portrait;
+  }
+
   body {
     background: white;
   }
 
   .no-print,
+  .screen-card-grid,
   .sidebar,
   .topbar {
     display: none !important;
+  }
+
+  .print-only {
+    display: grid !important;
   }
 
   .app-shell {
@@ -806,14 +895,47 @@ th {
   }
 
   .print-grid {
-    gap: 10mm;
-    grid-template-columns: repeat(2, 1fr);
-    padding: 8mm;
+    gap: 4mm;
+    grid-template-columns: repeat(3, 1fr);
+    padding: 0;
   }
 
   .print-card {
     break-inside: avoid;
     box-shadow: none;
-    min-height: 62mm;
+    gap: 5px;
+    min-height: 51mm;
+    padding: 7px;
+  }
+
+  .print-card-head span {
+    font-size: 8px;
+  }
+
+  .print-card-head strong {
+    font-size: 11px;
+  }
+
+  .print-card-head img,
+  .qr-placeholder {
+    height: 42px;
+    width: 42px;
+  }
+
+  .student-name {
+    font-size: 10px;
+    padding: 5px 0;
+  }
+
+  .print-fields {
+    gap: 3px 6px;
+    grid-template-columns: 56px 1fr;
+  }
+
+  .print-fields span,
+  .print-fields strong,
+  .print-fields code {
+    font-size: 8px;
+    line-height: 1.2;
   }
 }
