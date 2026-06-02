@@ -721,6 +721,43 @@ th {
   max-height: 560px;
 }
 
+.participant-table th:first-child,
+.participant-table td:first-child {
+  text-align: center;
+  width: 64px;
+}
+
+.participant-table td:nth-child(3) {
+  min-width: 220px;
+}
+
+.participant-table td:nth-child(5) {
+  color: #475569;
+  min-width: 320px;
+}
+
+.participant-table input {
+  min-height: auto;
+  width: auto;
+}
+
+.status-pill {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  color: #475569;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 4px 8px;
+}
+
+.status-pill.selected {
+  background: #dcfce7;
+  border-color: #86efac;
+  color: #166534;
+}
+
 .token-row {
   display: grid;
   gap: 8px;
