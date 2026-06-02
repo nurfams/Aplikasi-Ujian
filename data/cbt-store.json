@@ -1,0 +1,5828 @@
+{
+  "users": [
+    {
+      "id": "u-admin",
+      "role": "admin",
+      "name": "Admin Sekolah",
+      "username": "admin",
+      "password": "admin123"
+    },
+    {
+      "id": "u-guru-inf",
+      "role": "guru",
+      "name": "Guru Informatika",
+      "username": "guru_informatika",
+      "password": "guru123"
+    },
+    {
+      "id": "u-pengawas",
+      "role": "pengawas",
+      "name": "Pengawas Ruang",
+      "username": "pengawas",
+      "password": "awas123"
+    },
+    {
+      "id": "s-10684",
+      "role": "siswa",
+      "name": "ALAYYA KESYA ADINTA",
+      "username": "10684",
+      "password": "10684",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10693",
+      "role": "siswa",
+      "name": "AMY JUTTA FIRENZE",
+      "username": "10693",
+      "password": "10693",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10696",
+      "role": "siswa",
+      "name": "ANNYSHA HAERANI",
+      "username": "10696",
+      "password": "10696",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10703",
+      "role": "siswa",
+      "name": "AYLA ZAFARINA",
+      "username": "10703",
+      "password": "10703",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10704",
+      "role": "siswa",
+      "name": "AYSHILAH ADISTI",
+      "username": "10704",
+      "password": "10704",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10717",
+      "role": "siswa",
+      "name": "CHEPRIN ROZALINA",
+      "username": "10717",
+      "password": "10717",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10719",
+      "role": "siswa",
+      "name": "CHINTYA FUJI WULANDARI",
+      "username": "10719",
+      "password": "10719",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10720",
+      "role": "siswa",
+      "name": "CINTA SALSABILA RAHMAYUDIN",
+      "username": "10720",
+      "password": "10720",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10724",
+      "role": "siswa",
+      "name": "DELIANA SYAHRANI",
+      "username": "10724",
+      "password": "10724",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10728",
+      "role": "siswa",
+      "name": "DEWI ASTIKA",
+      "username": "10728",
+      "password": "10728",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10729",
+      "role": "siswa",
+      "name": "DIANDRA DWI PARAMITHA",
+      "username": "10729",
+      "password": "10729",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10733",
+      "role": "siswa",
+      "name": "DIVA ADINA SHAFA'A",
+      "username": "10733",
+      "password": "10733",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10734",
+      "role": "siswa",
+      "name": "ELOK ANANTA",
+      "username": "10734",
+      "password": "10734",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10737",
+      "role": "siswa",
+      "name": "ESA MOHAMAD LUDFI",
+      "username": "10737",
+      "password": "10737",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10740",
+      "role": "siswa",
+      "name": "FACHRI ALFARIZZI",
+      "username": "10740",
+      "password": "10740",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10752",
+      "role": "siswa",
+      "name": "FATIHATU IZZATI KAMILAH",
+      "username": "10752",
+      "password": "10752",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10755",
+      "role": "siswa",
+      "name": "FIKRI AHMAD FAUZAN",
+      "username": "10755",
+      "password": "10755",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10759",
+      "role": "siswa",
+      "name": "GHADIZA AZ ZAHRA",
+      "username": "10759",
+      "password": "10759",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10763",
+      "role": "siswa",
+      "name": "HILMAN NUR AZIZ",
+      "username": "10763",
+      "password": "10763",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10784",
+      "role": "siswa",
+      "name": "MOHAMAD AYUB KALYUBI",
+      "username": "10784",
+      "password": "10784",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10795",
+      "role": "siswa",
+      "name": "MUHAMMAD FURQON KHADAVY",
+      "username": "10795",
+      "password": "10795",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10797",
+      "role": "siswa",
+      "name": "MUHAMMAD MIQDAD RAFI",
+      "username": "10797",
+      "password": "10797",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10803",
+      "role": "siswa",
+      "name": "NABILA SEPTYA RAMADHANI",
+      "username": "10803",
+      "password": "10803",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10813",
+      "role": "siswa",
+      "name": "NUR RISHA AFSARI",
+      "username": "10813",
+      "password": "10813",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10818",
+      "role": "siswa",
+      "name": "PRADIVA BUDI NURMILLATI NAZILAH",
+      "username": "10818",
+      "password": "10818",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10820",
+      "role": "siswa",
+      "name": "PUSPITA TRIHAPSARI",
+      "username": "10820",
+      "password": "10820",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10888",
+      "role": "siswa",
+      "name": "RAFEYFA FEHIMA",
+      "username": "10888",
+      "password": "10888",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10825",
+      "role": "siswa",
+      "name": "RAHMAT SANTOSO",
+      "username": "10825",
+      "password": "10825",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10832",
+      "role": "siswa",
+      "name": "RAMZANI TAHER",
+      "username": "10832",
+      "password": "10832",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10845",
+      "role": "siswa",
+      "name": "RIVA MELANO AKBAR",
+      "username": "10845",
+      "password": "10845",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10846",
+      "role": "siswa",
+      "name": "RIZAL SETYAWAN",
+      "username": "10846",
+      "password": "10846",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10847",
+      "role": "siswa",
+      "name": "RIZKA UMI AZIZAH",
+      "username": "10847",
+      "password": "10847",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10871",
+      "role": "siswa",
+      "name": "TYAS ABIMANYU",
+      "username": "10871",
+      "password": "10871",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10872",
+      "role": "siswa",
+      "name": "USNANI FADILLAH",
+      "username": "10872",
+      "password": "10872",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10875",
+      "role": "siswa",
+      "name": "WAHYU KURNIAWAN",
+      "username": "10875",
+      "password": "10875",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10882",
+      "role": "siswa",
+      "name": "ZALFA AZURA KIRANI",
+      "username": "10882",
+      "password": "10882",
+      "className": "XII.1"
+    },
+    {
+      "id": "s-10676",
+      "role": "siswa",
+      "name": "AGISFA ROCHMANY ALFATH",
+      "username": "10676",
+      "password": "10676",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-11102",
+      "role": "siswa",
+      "name": "AHMAD RASYA ARROBANI",
+      "username": "11102",
+      "password": "11102",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10682",
+      "role": "siswa",
+      "name": "AHMAD SUBKHI",
+      "username": "10682",
+      "password": "10682",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10698",
+      "role": "siswa",
+      "name": "ARIANTI SAFA ANDINI",
+      "username": "10698",
+      "password": "10698",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10699",
+      "role": "siswa",
+      "name": "ASTRIYANDA STEVANY",
+      "username": "10699",
+      "password": "10699",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10706",
+      "role": "siswa",
+      "name": "AYUDIA PUTRI SUDIARTO",
+      "username": "10706",
+      "password": "10706",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10707",
+      "role": "siswa",
+      "name": "AZIZAH MAHARANI",
+      "username": "10707",
+      "password": "10707",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10715",
+      "role": "siswa",
+      "name": "BUNGA SUCI LESTARI",
+      "username": "10715",
+      "password": "10715",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10716",
+      "role": "siswa",
+      "name": "CAUCHY REZKY RAMADHAN",
+      "username": "10716",
+      "password": "10716",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10721",
+      "role": "siswa",
+      "name": "CITRA NUR ADHANIA",
+      "username": "10721",
+      "password": "10721",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10727",
+      "role": "siswa",
+      "name": "DEVINA SALSABILA",
+      "username": "10727",
+      "password": "10727",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10738",
+      "role": "siswa",
+      "name": "EVA JAIRIAH",
+      "username": "10738",
+      "password": "10738",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10743",
+      "role": "siswa",
+      "name": "FAHRIZA ABIWINATA",
+      "username": "10743",
+      "password": "10743",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10748",
+      "role": "siswa",
+      "name": "FALLYSA",
+      "username": "10748",
+      "password": "10748",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10754",
+      "role": "siswa",
+      "name": "FHAIZA NUR AZAHRA",
+      "username": "10754",
+      "password": "10754",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10760",
+      "role": "siswa",
+      "name": "GIAN GOSVAMI NATA DIYU",
+      "username": "10760",
+      "password": "10760",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-11104",
+      "role": "siswa",
+      "name": "JATI WICAKSONO",
+      "username": "11104",
+      "password": "11104",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10769",
+      "role": "siswa",
+      "name": "JESISCA AMELIA",
+      "username": "10769",
+      "password": "10769",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10771",
+      "role": "siswa",
+      "name": "KHAIRUNISA",
+      "username": "10771",
+      "password": "10771",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10772",
+      "role": "siswa",
+      "name": "KHOIRUL UMAM",
+      "username": "10772",
+      "password": "10772",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10775",
+      "role": "siswa",
+      "name": "LYDIA ANGELICA NAINGGOLAN",
+      "username": "10775",
+      "password": "10775",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10787",
+      "role": "siswa",
+      "name": "MUHAMAD IQHSAN BAIHAQI",
+      "username": "10787",
+      "password": "10787",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10791",
+      "role": "siswa",
+      "name": "MUHAMAD ZACKY FRIYADI",
+      "username": "10791",
+      "password": "10791",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10793",
+      "role": "siswa",
+      "name": "MUHAMMAD ANDIKA PRATAMA",
+      "username": "10793",
+      "password": "10793",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10816",
+      "role": "siswa",
+      "name": "OKTAVIA",
+      "username": "10816",
+      "password": "10816",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10821",
+      "role": "siswa",
+      "name": "PUTRI JESHIFA LAUREL",
+      "username": "10821",
+      "password": "10821",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10828",
+      "role": "siswa",
+      "name": "RAIHAN FIRMANSYAH",
+      "username": "10828",
+      "password": "10828",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10831",
+      "role": "siswa",
+      "name": "RAKA ABIMANYU HARIYANTO PUTRA",
+      "username": "10831",
+      "password": "10831",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10835",
+      "role": "siswa",
+      "name": "RANTI MARDALENA",
+      "username": "10835",
+      "password": "10835",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10839",
+      "role": "siswa",
+      "name": "RAYNALDY",
+      "username": "10839",
+      "password": "10839",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10841",
+      "role": "siswa",
+      "name": "RELLA ADYANSYAH PUTRI",
+      "username": "10841",
+      "password": "10841",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10850",
+      "role": "siswa",
+      "name": "ROYHAN SETIAWAN",
+      "username": "10850",
+      "password": "10850",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10851",
+      "role": "siswa",
+      "name": "SAKHA NAZIFA RACHMAN",
+      "username": "10851",
+      "password": "10851",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10860",
+      "role": "siswa",
+      "name": "SITI NUR JULAEHA",
+      "username": "10860",
+      "password": "10860",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10870",
+      "role": "siswa",
+      "name": "TSANIYAH NAILAL HUSNA",
+      "username": "10870",
+      "password": "10870",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10876",
+      "role": "siswa",
+      "name": "WIDLA MUHAMMAD TAQIY FAIQ",
+      "username": "10876",
+      "password": "10876",
+      "className": "XII.2"
+    },
+    {
+      "id": "s-10679",
+      "role": "siswa",
+      "name": "AHMAD IBNU DAIFULLAH",
+      "username": "10679",
+      "password": "10679",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10685",
+      "role": "siswa",
+      "name": "ALIA CAHYA PUTRI",
+      "username": "10685",
+      "password": "10685",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10686",
+      "role": "siswa",
+      "name": "ALYA SEFANI",
+      "username": "10686",
+      "password": "10686",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10689",
+      "role": "siswa",
+      "name": "AMELIA PRATIWI",
+      "username": "10689",
+      "password": "10689",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10690",
+      "role": "siswa",
+      "name": "AMELIA RASHEEDAH",
+      "username": "10690",
+      "password": "10690",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10695",
+      "role": "siswa",
+      "name": "ANISA KEYSA AZZURA",
+      "username": "10695",
+      "password": "10695",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10700",
+      "role": "siswa",
+      "name": "ASYIFA NUR RAKHMAH",
+      "username": "10700",
+      "password": "10700",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10708",
+      "role": "siswa",
+      "name": "AZKIYA RIHHADATUL'AISY'ULAYYA",
+      "username": "10708",
+      "password": "10708",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10709",
+      "role": "siswa",
+      "name": "BAGAS HERDIANSYAH",
+      "username": "10709",
+      "password": "10709",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10711",
+      "role": "siswa",
+      "name": "BERNADETH SHINTA MARIYANI TESALONIKA",
+      "username": "10711",
+      "password": "10711",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10726",
+      "role": "siswa",
+      "name": "DESWITA FITRIYANI",
+      "username": "10726",
+      "password": "10726",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10735",
+      "role": "siswa",
+      "name": "ELSA SASCIA",
+      "username": "10735",
+      "password": "10735",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10751",
+      "role": "siswa",
+      "name": "FARHAN TETUKO WICAKSONO",
+      "username": "10751",
+      "password": "10751",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-11103",
+      "role": "siswa",
+      "name": "GANDIS DAMAYANTI",
+      "username": "11103",
+      "password": "11103",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-11329",
+      "role": "siswa",
+      "name": "KIANDRA DIMAS SYAHPUTRA",
+      "username": "11329",
+      "password": "11329",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10776",
+      "role": "siswa",
+      "name": "MAHARDIKA",
+      "username": "10776",
+      "password": "10776",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10785",
+      "role": "siswa",
+      "name": "MUHAMAD ALDI FAWZAN",
+      "username": "10785",
+      "password": "10785",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10788",
+      "role": "siswa",
+      "name": "MUHAMAD NUR FAUZAN",
+      "username": "10788",
+      "password": "10788",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10794",
+      "role": "siswa",
+      "name": "MUHAMMAD FADIL TULLAH",
+      "username": "10794",
+      "password": "10794",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10799",
+      "role": "siswa",
+      "name": "MUHAMMAD REZA ARKA KELANA",
+      "username": "10799",
+      "password": "10799",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10801",
+      "role": "siswa",
+      "name": "MUHAMMAD WILDAN",
+      "username": "10801",
+      "password": "10801",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10802",
+      "role": "siswa",
+      "name": "NABILA HANUN DASYEN",
+      "username": "10802",
+      "password": "10802",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10804",
+      "role": "siswa",
+      "name": "NADIA",
+      "username": "10804",
+      "password": "10804",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10808",
+      "role": "siswa",
+      "name": "NIA RAHMAWATI",
+      "username": "10808",
+      "password": "10808",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10812",
+      "role": "siswa",
+      "name": "NUR INSANI WIJAYA",
+      "username": "10812",
+      "password": "10812",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10827",
+      "role": "siswa",
+      "name": "RAHMAWATI",
+      "username": "10827",
+      "password": "10827",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10833",
+      "role": "siswa",
+      "name": "RANGGA RAMADHAN",
+      "username": "10833",
+      "password": "10833",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10844",
+      "role": "siswa",
+      "name": "RIDWAN SAPUTRA",
+      "username": "10844",
+      "password": "10844",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10848",
+      "role": "siswa",
+      "name": "RIZWAR DUDE MUNANDAR",
+      "username": "10848",
+      "password": "10848",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10856",
+      "role": "siswa",
+      "name": "SENO DWI HARTOPO",
+      "username": "10856",
+      "password": "10856",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10863",
+      "role": "siswa",
+      "name": "SYAHRIANTI ANGRAENI",
+      "username": "10863",
+      "password": "10863",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10866",
+      "role": "siswa",
+      "name": "TITI HARYATI",
+      "username": "10866",
+      "password": "10866",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10867",
+      "role": "siswa",
+      "name": "TRI BAGUS HADI",
+      "username": "10867",
+      "password": "10867",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10868",
+      "role": "siswa",
+      "name": "TRI SETIYA WATI",
+      "username": "10868",
+      "password": "10868",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10877",
+      "role": "siswa",
+      "name": "YANUAR CAHYADIN",
+      "username": "10877",
+      "password": "10877",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10878",
+      "role": "siswa",
+      "name": "YASMIN AULIA AZZAHRAH",
+      "username": "10878",
+      "password": "10878",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10880",
+      "role": "siswa",
+      "name": "ZAHRA AULIA",
+      "username": "10880",
+      "password": "10880",
+      "className": "XII.3"
+    },
+    {
+      "id": "s-10670",
+      "role": "siswa",
+      "name": "ABDUL HAKIM",
+      "username": "10670",
+      "password": "10670",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10672",
+      "role": "siswa",
+      "name": "ADELIA HERMAWAN",
+      "username": "10672",
+      "password": "10672",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10674",
+      "role": "siswa",
+      "name": "ADITYA CANDRA",
+      "username": "10674",
+      "password": "10674",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10677",
+      "role": "siswa",
+      "name": "AGIYA CESHNA CALLYSTA",
+      "username": "10677",
+      "password": "10677",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10687",
+      "role": "siswa",
+      "name": "ALYCHIA PUTRI ALI",
+      "username": "10687",
+      "password": "10687",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10692",
+      "role": "siswa",
+      "name": "AMELIA VEGA",
+      "username": "10692",
+      "password": "10692",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10710",
+      "role": "siswa",
+      "name": "BERLIANA INDAH SARI",
+      "username": "10710",
+      "password": "10710",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10712",
+      "role": "siswa",
+      "name": "BINTA BARIKA RAMADHANI",
+      "username": "10712",
+      "password": "10712",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10718",
+      "role": "siswa",
+      "name": "CHIKA NOVIYANTI",
+      "username": "10718",
+      "password": "10718",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10739",
+      "role": "siswa",
+      "name": "EWO RADEN WIBOWO",
+      "username": "10739",
+      "password": "10739",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10741",
+      "role": "siswa",
+      "name": "FACHRI DANU ALAM",
+      "username": "10741",
+      "password": "10741",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10745",
+      "role": "siswa",
+      "name": "FAHRULLI MELISA AZZAHRA",
+      "username": "10745",
+      "password": "10745",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10762",
+      "role": "siswa",
+      "name": "HAFIDZ ZIDANE EFFENDI",
+      "username": "10762",
+      "password": "10762",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10766",
+      "role": "siswa",
+      "name": "IRFAN MINANSYAH",
+      "username": "10766",
+      "password": "10766",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10767",
+      "role": "siswa",
+      "name": "JAJA SUBAGJA",
+      "username": "10767",
+      "password": "10767",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10777",
+      "role": "siswa",
+      "name": "MARIA ANATASA",
+      "username": "10777",
+      "password": "10777",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10778",
+      "role": "siswa",
+      "name": "MAULIKA AHMAD",
+      "username": "10778",
+      "password": "10778",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10782",
+      "role": "siswa",
+      "name": "MOCHAMAD DAFFAH FIRMANSYAH",
+      "username": "10782",
+      "password": "10782",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10792",
+      "role": "siswa",
+      "name": "MUHAMMAD ABI ABDUL AZIS",
+      "username": "10792",
+      "password": "10792",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10798",
+      "role": "siswa",
+      "name": "MUHAMMAD RAFI",
+      "username": "10798",
+      "password": "10798",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10807",
+      "role": "siswa",
+      "name": "NAZWA LITA AYUDIAH",
+      "username": "10807",
+      "password": "10807",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10809",
+      "role": "siswa",
+      "name": "NINDI AMANDA PUTRI",
+      "username": "10809",
+      "password": "10809",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10810",
+      "role": "siswa",
+      "name": "NOOR JUAN DEVRANSACH",
+      "username": "10810",
+      "password": "10810",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10819",
+      "role": "siswa",
+      "name": "PRAJNA PARAMITA NUR EKA SATRIYA",
+      "username": "10819",
+      "password": "10819",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10829",
+      "role": "siswa",
+      "name": "RAIHAN QUDRI",
+      "username": "10829",
+      "password": "10829",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10837",
+      "role": "siswa",
+      "name": "RATU SEPTIA ZAHRA",
+      "username": "10837",
+      "password": "10837",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10840",
+      "role": "siswa",
+      "name": "REINANDA RAFEYFA IMANSYAH",
+      "username": "10840",
+      "password": "10840",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10843",
+      "role": "siswa",
+      "name": "RIDHO AFRIYADI",
+      "username": "10843",
+      "password": "10843",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10849",
+      "role": "siswa",
+      "name": "RONALDO PUTRA PRATAMA",
+      "username": "10849",
+      "password": "10849",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10854",
+      "role": "siswa",
+      "name": "SEKAR ADILA RANUM",
+      "username": "10854",
+      "password": "10854",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10855",
+      "role": "siswa",
+      "name": "SELFIA INDRIYANI",
+      "username": "10855",
+      "password": "10855",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10861",
+      "role": "siswa",
+      "name": "STANLEY WIJAYA",
+      "username": "10861",
+      "password": "10861",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10862",
+      "role": "siswa",
+      "name": "SYAHBUDIN",
+      "username": "10862",
+      "password": "10862",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10864",
+      "role": "siswa",
+      "name": "SYAKILLA ZAHROTUL YOHANA",
+      "username": "10864",
+      "password": "10864",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10865",
+      "role": "siswa",
+      "name": "TALITHA CLARISSA SALSABILA",
+      "username": "10865",
+      "password": "10865",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10874",
+      "role": "siswa",
+      "name": "VITA FERTIKA SARI",
+      "username": "10874",
+      "password": "10874",
+      "className": "XII.4"
+    },
+    {
+      "id": "s-10673",
+      "role": "siswa",
+      "name": "ADITYA BIMANTARA SAPUTRA",
+      "username": "10673",
+      "password": "10673",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10680",
+      "role": "siswa",
+      "name": "AHMAD RAHVANELLI",
+      "username": "10680",
+      "password": "10680",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10681",
+      "role": "siswa",
+      "name": "AHMAD RISKI ARIANSYAH",
+      "username": "10681",
+      "password": "10681",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10683",
+      "role": "siswa",
+      "name": "AKMAL SAWAL",
+      "username": "10683",
+      "password": "10683",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10691",
+      "role": "siswa",
+      "name": "AMELIA SEPIANA",
+      "username": "10691",
+      "password": "10691",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10694",
+      "role": "siswa",
+      "name": "ANASYA PUTRI HARYANTI",
+      "username": "10694",
+      "password": "10694",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10701",
+      "role": "siswa",
+      "name": "AULIA AZZAHRA",
+      "username": "10701",
+      "password": "10701",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10702",
+      "role": "siswa",
+      "name": "AULIA SYAFIRA",
+      "username": "10702",
+      "password": "10702",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10714",
+      "role": "siswa",
+      "name": "BUNGA FADILLAH AYANAH",
+      "username": "10714",
+      "password": "10714",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10723",
+      "role": "siswa",
+      "name": "DEA ANNISA AZAHRA",
+      "username": "10723",
+      "password": "10723",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10731",
+      "role": "siswa",
+      "name": "DIMAS SATRIO FAVIAN",
+      "username": "10731",
+      "password": "10731",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10732",
+      "role": "siswa",
+      "name": "DINMAS AR RAFI",
+      "username": "10732",
+      "password": "10732",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10746",
+      "role": "siswa",
+      "name": "FAHRY YAHYA AL BAYHAQI",
+      "username": "10746",
+      "password": "10746",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10749",
+      "role": "siswa",
+      "name": "FARELIA AINI GUNAWAN",
+      "username": "10749",
+      "password": "10749",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10750",
+      "role": "siswa",
+      "name": "FARHAN FA'IZUL HUDA",
+      "username": "10750",
+      "password": "10750",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10753",
+      "role": "siswa",
+      "name": "FERA ZAHRATU SYITA",
+      "username": "10753",
+      "password": "10753",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10757",
+      "role": "siswa",
+      "name": "FREDRIX WILLIAM HELAU",
+      "username": "10757",
+      "password": "10757",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10758",
+      "role": "siswa",
+      "name": "GALIH AZHAR KURNIAPUTRA",
+      "username": "10758",
+      "password": "10758",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10764",
+      "role": "siswa",
+      "name": "IBNU HILMI",
+      "username": "10764",
+      "password": "10764",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-11105",
+      "role": "siswa",
+      "name": "JIAULHAQ FADEL",
+      "username": "11105",
+      "password": "11105",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10770",
+      "role": "siswa",
+      "name": "KAYLA NURIKA PUTRI",
+      "username": "10770",
+      "password": "10770",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10887",
+      "role": "siswa",
+      "name": "KHALIFAH ANNASTASYA",
+      "username": "10887",
+      "password": "10887",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10774",
+      "role": "siswa",
+      "name": "LUTVIAH NUR ADMAJA",
+      "username": "10774",
+      "password": "10774",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10783",
+      "role": "siswa",
+      "name": "MOCHAMMAD REZA FAHLEVI",
+      "username": "10783",
+      "password": "10783",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10811",
+      "role": "siswa",
+      "name": "NOVARISA PUSPA NINGRUM",
+      "username": "10811",
+      "password": "10811",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10814",
+      "role": "siswa",
+      "name": "NUR SANDRIA AZILA",
+      "username": "10814",
+      "password": "10814",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10815",
+      "role": "siswa",
+      "name": "NURUL MUBAROK",
+      "username": "10815",
+      "password": "10815",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10817",
+      "role": "siswa",
+      "name": "PANJI ASMARA PUTRA",
+      "username": "10817",
+      "password": "10817",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10826",
+      "role": "siswa",
+      "name": "RAHMATTULLOH TABRANI",
+      "username": "10826",
+      "password": "10826",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10830",
+      "role": "siswa",
+      "name": "RAINA FIRDAUSI",
+      "username": "10830",
+      "password": "10830",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10834",
+      "role": "siswa",
+      "name": "RANI AULIA",
+      "username": "10834",
+      "password": "10834",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10836",
+      "role": "siswa",
+      "name": "RARA SABELLA",
+      "username": "10836",
+      "password": "10836",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10853",
+      "role": "siswa",
+      "name": "SAYYIDA NAFISA PERMANA",
+      "username": "10853",
+      "password": "10853",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10859",
+      "role": "siswa",
+      "name": "SITI MARWAH WIJAYA",
+      "username": "10859",
+      "password": "10859",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10873",
+      "role": "siswa",
+      "name": "VINA WARDATUSSYIFA",
+      "username": "10873",
+      "password": "10873",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10879",
+      "role": "siswa",
+      "name": "YULIYANTI",
+      "username": "10879",
+      "password": "10879",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10881",
+      "role": "siswa",
+      "name": "ZAKI MAULIDIAN",
+      "username": "10881",
+      "password": "10881",
+      "className": "XII.5"
+    },
+    {
+      "id": "s-10671",
+      "role": "siswa",
+      "name": "ACHMAD TAJRI ABSORI",
+      "username": "10671",
+      "password": "10671",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10675",
+      "role": "siswa",
+      "name": "AFRILIYANI",
+      "username": "10675",
+      "password": "10675",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10678",
+      "role": "siswa",
+      "name": "AGUNG",
+      "username": "10678",
+      "password": "10678",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10688",
+      "role": "siswa",
+      "name": "AMELIA LIDIA PRATIWI",
+      "username": "10688",
+      "password": "10688",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10697",
+      "role": "siswa",
+      "name": "AQILAH DHAWIYA RASIKHA",
+      "username": "10697",
+      "password": "10697",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10705",
+      "role": "siswa",
+      "name": "AYU KURNIA SARI",
+      "username": "10705",
+      "password": "10705",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10713",
+      "role": "siswa",
+      "name": "BUNGA DAHLIA RAMAWAN",
+      "username": "10713",
+      "password": "10713",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10722",
+      "role": "siswa",
+      "name": "CUT ZAHRA YUSRIYAH RAMADHANI",
+      "username": "10722",
+      "password": "10722",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10725",
+      "role": "siswa",
+      "name": "DEPA PRIYOLA",
+      "username": "10725",
+      "password": "10725",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10730",
+      "role": "siswa",
+      "name": "DIAZ RUDIANSYAH",
+      "username": "10730",
+      "password": "10730",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10736",
+      "role": "siswa",
+      "name": "EMUT AMRIH WIJAYANTI",
+      "username": "10736",
+      "password": "10736",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10742",
+      "role": "siswa",
+      "name": "FACHRI SANDI HIDAYAT",
+      "username": "10742",
+      "password": "10742",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10744",
+      "role": "siswa",
+      "name": "FAHRIZAL PUTRA BHAKTI",
+      "username": "10744",
+      "password": "10744",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10747",
+      "role": "siswa",
+      "name": "FAJAR RAMADAN",
+      "username": "10747",
+      "password": "10747",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10761",
+      "role": "siswa",
+      "name": "GILANG MOHAMMAD SYA'BANI AZZIKRI",
+      "username": "10761",
+      "password": "10761",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10765",
+      "role": "siswa",
+      "name": "INAYATU DZIL IZZATI",
+      "username": "10765",
+      "password": "10765",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10768",
+      "role": "siswa",
+      "name": "JASYCA AFIA PUTRI",
+      "username": "10768",
+      "password": "10768",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10779",
+      "role": "siswa",
+      "name": "MAYSIKAH NURAIN",
+      "username": "10779",
+      "password": "10779",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10780",
+      "role": "siswa",
+      "name": "MEDYNA RAHMADILLAH HARAHAP",
+      "username": "10780",
+      "password": "10780",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10781",
+      "role": "siswa",
+      "name": "MIA RAHMANIA",
+      "username": "10781",
+      "password": "10781",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10786",
+      "role": "siswa",
+      "name": "MUHAMAD ALIF",
+      "username": "10786",
+      "password": "10786",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10789",
+      "role": "siswa",
+      "name": "MUHAMAD RAZKA ADRIAN",
+      "username": "10789",
+      "password": "10789",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10790",
+      "role": "siswa",
+      "name": "MUHAMAD SAPUTRA",
+      "username": "10790",
+      "password": "10790",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10796",
+      "role": "siswa",
+      "name": "MUHAMMAD KEANU VHERDANIAL",
+      "username": "10796",
+      "password": "10796",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10800",
+      "role": "siswa",
+      "name": "MUHAMMAD RIZKI",
+      "username": "10800",
+      "password": "10800",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10805",
+      "role": "siswa",
+      "name": "NADIA YUSUF",
+      "username": "10805",
+      "password": "10805",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10806",
+      "role": "siswa",
+      "name": "NADYA SYAFIRA ANDINI",
+      "username": "10806",
+      "password": "10806",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10822",
+      "role": "siswa",
+      "name": "RACHEL REGITA DWI CAHYANI",
+      "username": "10822",
+      "password": "10822",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10823",
+      "role": "siswa",
+      "name": "RAFLY ARDIANSYAH",
+      "username": "10823",
+      "password": "10823",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10838",
+      "role": "siswa",
+      "name": "RAVLY HARDIANSYAH",
+      "username": "10838",
+      "password": "10838",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10842",
+      "role": "siswa",
+      "name": "REYSA ANLI",
+      "username": "10842",
+      "password": "10842",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10852",
+      "role": "siswa",
+      "name": "SANDY DWI PRASTIAWAN",
+      "username": "10852",
+      "password": "10852",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10857",
+      "role": "siswa",
+      "name": "SEPTIA MAWAR RAMADHON",
+      "username": "10857",
+      "password": "10857",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10858",
+      "role": "siswa",
+      "name": "SHIFA DWI RAHMADINA",
+      "username": "10858",
+      "password": "10858",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10869",
+      "role": "siswa",
+      "name": "TRISTA DWI AYU LESTARI",
+      "username": "10869",
+      "password": "10869",
+      "className": "XII.6"
+    },
+    {
+      "id": "s-10883",
+      "role": "siswa",
+      "name": "ZARINA MAULIDA APANDI",
+      "username": "10883",
+      "password": "10883",
+      "className": "XII.6"
+    }
+  ],
+  "students": [
+    {
+      "id": "s-10684",
+      "nis": "10684",
+      "nisn": "0073628750",
+      "name": "ALAYYA KESYA ADINTA",
+      "gender": "P",
+      "username": "10684",
+      "password": "10684",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Geografi 3",
+        "Sosiologi 2",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10693",
+      "nis": "10693",
+      "nisn": "0071329561",
+      "name": "AMY JUTTA FIRENZE",
+      "gender": "P",
+      "username": "10693",
+      "password": "10693",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 2",
+        "Matematika TL 1",
+        "Fisika"
+      ]
+    },
+    {
+      "id": "s-10696",
+      "nis": "10696",
+      "nisn": "0064750032",
+      "name": "ANNYSHA HAERANI",
+      "gender": "P",
+      "username": "10696",
+      "password": "10696",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Kimia 2",
+        "Fisika",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10703",
+      "nis": "10703",
+      "nisn": "0068809662",
+      "name": "AYLA ZAFARINA",
+      "gender": "P",
+      "username": "10703",
+      "password": "10703",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 2",
+        "Sosiologi 3",
+        "Ekonomi 2",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10704",
+      "nis": "10704",
+      "nisn": "0064098757",
+      "name": "AYSHILAH ADISTI",
+      "gender": "P",
+      "username": "10704",
+      "password": "10704",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 2",
+        "Sosiologi 2",
+        "Ekonomi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10717",
+      "nis": "10717",
+      "nisn": "0077879213",
+      "name": "CHEPRIN ROZALINA",
+      "gender": "P",
+      "username": "10717",
+      "password": "10717",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sosiologi 5",
+        "Matematika TL 2",
+        "Ekonomi 2",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10719",
+      "nis": "10719",
+      "nisn": "0076966227",
+      "name": "CHINTYA FUJI WULANDARI",
+      "gender": "P",
+      "username": "10719",
+      "password": "10719",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 2",
+        "Sosiologi 2",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10720",
+      "nis": "10720",
+      "nisn": "0077520715",
+      "name": "CINTA SALSABILA RAHMAYUDIN",
+      "gender": "P",
+      "username": "10720",
+      "password": "10720",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Sosiologi 5",
+        "Kimia 1",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10724",
+      "nis": "10724",
+      "nisn": "0064761092",
+      "name": "DELIANA SYAHRANI",
+      "gender": "P",
+      "username": "10724",
+      "password": "10724",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Sosiologi 5",
+        "Kimia 1",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10728",
+      "nis": "10728",
+      "nisn": "0073767527",
+      "name": "DEWI ASTIKA",
+      "gender": "P",
+      "username": "10728",
+      "password": "10728",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 2",
+        "Sosiologi 2",
+        "Ekonomi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10729",
+      "nis": "10729",
+      "nisn": "0074776578",
+      "name": "DIANDRA DWI PARAMITHA",
+      "gender": "P",
+      "username": "10729",
+      "password": "10729",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Geografi 1",
+        "Sosiologi 4",
+        "Ekonomi 3"
+      ]
+    },
+    {
+      "id": "s-10733",
+      "nis": "10733",
+      "nisn": "0076478836",
+      "name": "DIVA ADINA SHAFA'A",
+      "gender": "P",
+      "username": "10733",
+      "password": "10733",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sosiologi 2",
+        "Kimia 1",
+        "Bahasa Arab 1",
+        "Biologi 1"
+      ]
+    },
+    {
+      "id": "s-10734",
+      "nis": "10734",
+      "nisn": "0067154702",
+      "name": "ELOK ANANTA",
+      "gender": "L",
+      "username": "10734",
+      "password": "10734",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 1",
+        "Sosiologi 1",
+        "Fisika",
+        "Biologi 1"
+      ]
+    },
+    {
+      "id": "s-10737",
+      "nis": "10737",
+      "nisn": "0065862258",
+      "name": "ESA MOHAMAD LUDFI",
+      "gender": "L",
+      "username": "10737",
+      "password": "10737",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Sosiologi 5",
+        "Ekonomi 2",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10740",
+      "nis": "10740",
+      "nisn": "0079127054",
+      "name": "FACHRI ALFARIZZI",
+      "gender": "L",
+      "username": "10740",
+      "password": "10740",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 1",
+        "Sosiologi 3",
+        "Ekonomi 1",
+        "Bahasa Arab 1",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10752",
+      "nis": "10752",
+      "nisn": "0081476160",
+      "name": "FATIHATU IZZATI KAMILAH",
+      "gender": "P",
+      "username": "10752",
+      "password": "10752",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 2",
+        "Matematika TL 1",
+        "Kimia 1",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10755",
+      "nis": "10755",
+      "nisn": "0071533631",
+      "name": "FIKRI AHMAD FAUZAN",
+      "gender": "L",
+      "username": "10755",
+      "password": "10755",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 2",
+        "Matematika TL 2",
+        "Ekonomi 2",
+        "Bahasa Arab 1"
+      ]
+    },
+    {
+      "id": "s-10759",
+      "nis": "10759",
+      "nisn": "0088700153",
+      "name": "GHADIZA AZ ZAHRA",
+      "gender": "P",
+      "username": "10759",
+      "password": "10759",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 2",
+        "Geografi 1",
+        "Ekonomi 1",
+        "Bahasa Arab 1",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10763",
+      "nis": "10763",
+      "nisn": "0076226259",
+      "name": "HILMAN NUR AZIZ",
+      "gender": "L",
+      "username": "10763",
+      "password": "10763",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 3",
+        "Sosiologi 4",
+        "Ekonomi 2",
+        "Bahasa Arab 1",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10784",
+      "nis": "10784",
+      "nisn": "0062163849",
+      "name": "MOHAMAD AYUB KALYUBI",
+      "gender": "L",
+      "username": "10784",
+      "password": "10784",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 3",
+        "Sosiologi 4",
+        "Ekonomi 2",
+        "Bahasa Arab 1",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10795",
+      "nis": "10795",
+      "nisn": "0076307956",
+      "name": "MUHAMMAD FURQON KHADAVY",
+      "gender": "L",
+      "username": "10795",
+      "password": "10795",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 2",
+        "Matematika TL 2",
+        "Ekonomi 2"
+      ]
+    },
+    {
+      "id": "s-10797",
+      "nis": "10797",
+      "nisn": "0088860474",
+      "name": "MUHAMMAD MIQDAD RAFI",
+      "gender": "L",
+      "username": "10797",
+      "password": "10797",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 1",
+        "Ekonomi 1",
+        "Bahasa Arab 1",
+        "Biologi 1"
+      ]
+    },
+    {
+      "id": "s-10803",
+      "nis": "10803",
+      "nisn": "0077046538",
+      "name": "NABILA SEPTYA RAMADHANI",
+      "gender": "P",
+      "username": "10803",
+      "password": "10803",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Sosiologi 2",
+        "Ekonomi 1",
+        "Bahasa Arab 1",
+        "Biologi 1"
+      ]
+    },
+    {
+      "id": "s-10813",
+      "nis": "10813",
+      "nisn": "0075251977",
+      "name": "NUR RISHA AFSARI",
+      "gender": "P",
+      "username": "10813",
+      "password": "10813",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Geografi 3",
+        "Sosiologi 2",
+        "Matematika TL 2"
+      ]
+    },
+    {
+      "id": "s-10818",
+      "nis": "10818",
+      "nisn": "0073707525",
+      "name": "PRADIVA BUDI NURMILLATI NAZILAH",
+      "gender": "P",
+      "username": "10818",
+      "password": "10818",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Geografi 2",
+        "Sosiologi 4",
+        "Ekonomi 3"
+      ]
+    },
+    {
+      "id": "s-10820",
+      "nis": "10820",
+      "nisn": "0082981183",
+      "name": "PUSPITA TRIHAPSARI",
+      "gender": "P",
+      "username": "10820",
+      "password": "10820",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 2",
+        "Matematika TL 1",
+        "Fisika"
+      ]
+    },
+    {
+      "id": "s-10888",
+      "nis": "10888",
+      "nisn": "0086502574",
+      "name": "RAFEYFA FEHIMA",
+      "gender": "P",
+      "username": "10888",
+      "password": "10888",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Matematika TL 1",
+        "Kimia 2",
+        "Bahasa Arab 1",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10825",
+      "nis": "10825",
+      "nisn": "0077219010",
+      "name": "RAHMAT SANTOSO",
+      "gender": "L",
+      "username": "10825",
+      "password": "10825",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Matematika TL 1",
+        "Kimia 2",
+        "Bahasa Arab 1",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10832",
+      "nis": "10832",
+      "nisn": "0058608434",
+      "name": "RAMZANI TAHER",
+      "gender": "L",
+      "username": "10832",
+      "password": "10832",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Geografi 1",
+        "Ekonomi 1",
+        "Biologi 1"
+      ]
+    },
+    {
+      "id": "s-10845",
+      "nis": "10845",
+      "nisn": "0076689490",
+      "name": "RIVA MELANO AKBAR",
+      "gender": "L",
+      "username": "10845",
+      "password": "10845",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 3",
+        "Geografi 3",
+        "Sosiologi 4"
+      ]
+    },
+    {
+      "id": "s-10846",
+      "nis": "10846",
+      "nisn": "0078393189",
+      "name": "RIZAL SETYAWAN",
+      "gender": "L",
+      "username": "10846",
+      "password": "10846",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Geografi 1",
+        "Ekonomi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10847",
+      "nis": "10847",
+      "nisn": "0075801729",
+      "name": "RIZKA UMI AZIZAH",
+      "gender": "P",
+      "username": "10847",
+      "password": "10847",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Sosiologi 2",
+        "Ekonomi 1",
+        "Bahasa Arab 1",
+        "Biologi 1"
+      ]
+    },
+    {
+      "id": "s-10871",
+      "nis": "10871",
+      "nisn": "0073305335",
+      "name": "TYAS ABIMANYU",
+      "gender": "L",
+      "username": "10871",
+      "password": "10871",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Geografi 1",
+        "Sosiologi 4",
+        "Ekonomi 3",
+        "Bahasa Arab 1"
+      ]
+    },
+    {
+      "id": "s-10872",
+      "nis": "10872",
+      "nisn": "0065351735",
+      "name": "USNANI FADILLAH",
+      "gender": "P",
+      "username": "10872",
+      "password": "10872",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Geografi 3",
+        "Sosiologi 1",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10875",
+      "nis": "10875",
+      "nisn": "0068563639",
+      "name": "WAHYU KURNIAWAN",
+      "gender": "L",
+      "username": "10875",
+      "password": "10875",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 2",
+        "Sosiologi 3",
+        "Ekonomi 2",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10882",
+      "nis": "10882",
+      "nisn": "0074776316",
+      "name": "ZALFA AZURA KIRANI",
+      "gender": "P",
+      "username": "10882",
+      "password": "10882",
+      "className": "XII.1",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Geografi 2",
+        "Sosiologi 4",
+        "Ekonomi 3"
+      ]
+    },
+    {
+      "id": "s-10676",
+      "nis": "10676",
+      "nisn": "0062721508",
+      "name": "AGISFA ROCHMANY ALFATH",
+      "gender": "L",
+      "username": "10676",
+      "password": "10676",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 2",
+        "Sosiologi 2",
+        "Kimia 1"
+      ]
+    },
+    {
+      "id": "s-11102",
+      "nis": "11102",
+      "nisn": "0079265042",
+      "name": "AHMAD RASYA ARROBANI",
+      "gender": "L",
+      "username": "11102",
+      "password": "11102",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": []
+    },
+    {
+      "id": "s-10682",
+      "nis": "10682",
+      "nisn": "0071490734",
+      "name": "AHMAD SUBKHI",
+      "gender": "L",
+      "username": "10682",
+      "password": "10682",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 1",
+        "Sosiologi 3",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10698",
+      "nis": "10698",
+      "nisn": "0073892119",
+      "name": "ARIANTI SAFA ANDINI",
+      "gender": "P",
+      "username": "10698",
+      "password": "10698",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Kimia 2",
+        "Fisika",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10699",
+      "nis": "10699",
+      "nisn": "0075941969",
+      "name": "ASTRIYANDA STEVANY",
+      "gender": "P",
+      "username": "10699",
+      "password": "10699",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Sosiologi 5",
+        "Kimia 1",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10706",
+      "nis": "10706",
+      "nisn": "0064187706",
+      "name": "AYUDIA PUTRI SUDIARTO",
+      "gender": "P",
+      "username": "10706",
+      "password": "10706",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 1",
+        "Kimia 2",
+        "Fisika",
+        "Bahasa Arab 1",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10707",
+      "nis": "10707",
+      "nisn": "0068620928",
+      "name": "AZIZAH MAHARANI",
+      "gender": "P",
+      "username": "10707",
+      "password": "10707",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 1",
+        "Sosiologi 3",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10715",
+      "nis": "10715",
+      "nisn": "0062011812",
+      "name": "BUNGA SUCI LESTARI",
+      "gender": "P",
+      "username": "10715",
+      "password": "10715",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Geografi 3",
+        "Sosiologi 1",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10716",
+      "nis": "10716",
+      "nisn": "0075193581",
+      "name": "CAUCHY REZKY RAMADHAN",
+      "gender": "L",
+      "username": "10716",
+      "password": "10716",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 2",
+        "Sosiologi 2",
+        "Matematika TL 2"
+      ]
+    },
+    {
+      "id": "s-10721",
+      "nis": "10721",
+      "nisn": "0062731298",
+      "name": "CITRA NUR ADHANIA",
+      "gender": "P",
+      "username": "10721",
+      "password": "10721",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 1",
+        "Sosiologi 1",
+        "Ekonomi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10727",
+      "nis": "10727",
+      "nisn": "0076412769",
+      "name": "DEVINA SALSABILA",
+      "gender": "P",
+      "username": "10727",
+      "password": "10727",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Geografi 2",
+        "Sosiologi 4",
+        "Ekonomi 3"
+      ]
+    },
+    {
+      "id": "s-10738",
+      "nis": "10738",
+      "nisn": "0078796326",
+      "name": "EVA JAIRIAH",
+      "gender": "P",
+      "username": "10738",
+      "password": "10738",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Fisika",
+        "Ekonomi 2",
+        "Bahasa Arab 1",
+        "Biologi 1"
+      ]
+    },
+    {
+      "id": "s-10743",
+      "nis": "10743",
+      "nisn": "0069363277",
+      "name": "FAHRIZA ABIWINATA",
+      "gender": "L",
+      "username": "10743",
+      "password": "10743",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 1",
+        "Sosiologi 4",
+        "Bahasa Arab 1",
+        "Biologi 1"
+      ]
+    },
+    {
+      "id": "s-10748",
+      "nis": "10748",
+      "nisn": "0074404826",
+      "name": "FALLYSA",
+      "gender": "P",
+      "username": "10748",
+      "password": "10748",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 1",
+        "Kimia 1",
+        "Bahasa Arab 1",
+        "Biologi 1"
+      ]
+    },
+    {
+      "id": "s-10754",
+      "nis": "10754",
+      "nisn": "0077326503",
+      "name": "FHAIZA NUR AZAHRA",
+      "gender": "P",
+      "username": "10754",
+      "password": "10754",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Sosiologi 1",
+        "Kimia 2",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10760",
+      "nis": "10760",
+      "nisn": "0089040786",
+      "name": "GIAN GOSVAMI NATA DIYU",
+      "gender": "L",
+      "username": "10760",
+      "password": "10760",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Geografi 2",
+        "Sosiologi 4",
+        "Ekonomi 3"
+      ]
+    },
+    {
+      "id": "s-11104",
+      "nis": "11104",
+      "nisn": "0084850292",
+      "name": "JATI WICAKSONO",
+      "gender": "L",
+      "username": "11104",
+      "password": "11104",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Ekonomi 2",
+        "Ekonomi 3",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10769",
+      "nis": "10769",
+      "nisn": "0088392847",
+      "name": "JESISCA AMELIA",
+      "gender": "P",
+      "username": "10769",
+      "password": "10769",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 2",
+        "Sosiologi 2",
+        "Ekonomi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10771",
+      "nis": "10771",
+      "nisn": "0068280266",
+      "name": "KHAIRUNISA",
+      "gender": "P",
+      "username": "10771",
+      "password": "10771",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Sosiologi 1",
+        "Ekonomi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10772",
+      "nis": "10772",
+      "nisn": "0069899598",
+      "name": "KHOIRUL UMAM",
+      "gender": "L",
+      "username": "10772",
+      "password": "10772",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Geografi 3",
+        "Sosiologi 1",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10775",
+      "nis": "10775",
+      "nisn": "0075221728",
+      "name": "LYDIA ANGELICA NAINGGOLAN",
+      "gender": "P",
+      "username": "10775",
+      "password": "10775",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 2",
+        "Sosiologi 2",
+        "Ekonomi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10787",
+      "nis": "10787",
+      "nisn": "0079113551",
+      "name": "MUHAMAD IQHSAN BAIHAQI",
+      "gender": "L",
+      "username": "10787",
+      "password": "10787",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 1",
+        "Sosiologi 1",
+        "Ekonomi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10791",
+      "nis": "10791",
+      "nisn": "0075599212",
+      "name": "MUHAMAD ZACKY FRIYADI",
+      "gender": "L",
+      "username": "10791",
+      "password": "10791",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 3",
+        "Geografi 1",
+        "Kimia 1",
+        "Bahasa Arab 1"
+      ]
+    },
+    {
+      "id": "s-10793",
+      "nis": "10793",
+      "nisn": "0075036735",
+      "name": "MUHAMMAD ANDIKA PRATAMA",
+      "gender": "L",
+      "username": "10793",
+      "password": "10793",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 2",
+        "Sosiologi 2",
+        "Ekonomi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10816",
+      "nis": "10816",
+      "nisn": "0078824769",
+      "name": "OKTAVIA",
+      "gender": "P",
+      "username": "10816",
+      "password": "10816",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sosiologi 2",
+        "Kimia 1",
+        "Ekonomi 3",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10821",
+      "nis": "10821",
+      "nisn": "0075030857",
+      "name": "PUTRI JESHIFA LAUREL",
+      "gender": "P",
+      "username": "10821",
+      "password": "10821",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 2",
+        "Sosiologi 1",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10828",
+      "nis": "10828",
+      "nisn": "0073878403",
+      "name": "RAIHAN FIRMANSYAH",
+      "gender": "L",
+      "username": "10828",
+      "password": "10828",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 1",
+        "Sosiologi 1",
+        "Ekonomi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10831",
+      "nis": "10831",
+      "nisn": "0088881217",
+      "name": "RAKA ABIMANYU HARIYANTO PUTRA",
+      "gender": "L",
+      "username": "10831",
+      "password": "10831",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 2",
+        "Sosiologi 2",
+        "Matematika TL 2"
+      ]
+    },
+    {
+      "id": "s-10835",
+      "nis": "10835",
+      "nisn": "0076273869",
+      "name": "RANTI MARDALENA",
+      "gender": "P",
+      "username": "10835",
+      "password": "10835",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 1",
+        "Sosiologi 3",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10839",
+      "nis": "10839",
+      "nisn": "0071986959",
+      "name": "RAYNALDY",
+      "gender": "L",
+      "username": "10839",
+      "password": "10839",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 2",
+        "Sosiologi 2",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10841",
+      "nis": "10841",
+      "nisn": "0076454951",
+      "name": "RELLA ADYANSYAH PUTRI",
+      "gender": "P",
+      "username": "10841",
+      "password": "10841",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 2",
+        "Sosiologi 2",
+        "Ekonomi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10850",
+      "nis": "10850",
+      "nisn": "0069165877",
+      "name": "ROYHAN SETIAWAN",
+      "gender": "L",
+      "username": "10850",
+      "password": "10850",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 3",
+        "Sosiologi 1",
+        "Ekonomi 2",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10851",
+      "nis": "10851",
+      "nisn": "0075918183",
+      "name": "SAKHA NAZIFA RACHMAN",
+      "gender": "L",
+      "username": "10851",
+      "password": "10851",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 2",
+        "Sosiologi 2",
+        "Ekonomi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10860",
+      "nis": "10860",
+      "nisn": "0072970352",
+      "name": "SITI NUR JULAEHA",
+      "gender": "P",
+      "username": "10860",
+      "password": "10860",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Sosiologi 5",
+        "Matematika TL 2",
+        "Ekonomi 2"
+      ]
+    },
+    {
+      "id": "s-10870",
+      "nis": "10870",
+      "nisn": "0085440608",
+      "name": "TSANIYAH NAILAL HUSNA",
+      "gender": "P",
+      "username": "10870",
+      "password": "10870",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Matematika TL 1",
+        "Kimia 2",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10876",
+      "nis": "10876",
+      "nisn": "0086306280",
+      "name": "WIDLA MUHAMMAD TAQIY FAIQ",
+      "gender": "L",
+      "username": "10876",
+      "password": "10876",
+      "className": "XII.2",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 2",
+        "Sosiologi 2",
+        "Matematika TL 2",
+        "Bahasa Arab 1"
+      ]
+    },
+    {
+      "id": "s-10679",
+      "nis": "10679",
+      "nisn": "0075550204",
+      "name": "AHMAD IBNU DAIFULLAH",
+      "gender": "L",
+      "username": "10679",
+      "password": "10679",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Sosiologi 5",
+        "Ekonomi 2",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10685",
+      "nis": "10685",
+      "nisn": "0081545703",
+      "name": "ALIA CAHYA PUTRI",
+      "gender": "P",
+      "username": "10685",
+      "password": "10685",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Sosiologi 5",
+        "Kimia 1",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10686",
+      "nis": "10686",
+      "nisn": "0076689493",
+      "name": "ALYA SEFANI",
+      "gender": "P",
+      "username": "10686",
+      "password": "10686",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 2",
+        "Sosiologi 1"
+      ]
+    },
+    {
+      "id": "s-10689",
+      "nis": "10689",
+      "nisn": "0078788575",
+      "name": "AMELIA PRATIWI",
+      "gender": "P",
+      "username": "10689",
+      "password": "10689",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Kimia 2",
+        "Fisika",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10690",
+      "nis": "10690",
+      "nisn": "0061606839",
+      "name": "AMELIA RASHEEDAH",
+      "gender": "P",
+      "username": "10690",
+      "password": "10690",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 2",
+        "Sosiologi 1",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10695",
+      "nis": "10695",
+      "nisn": "0074991083",
+      "name": "ANISA KEYSA AZZURA",
+      "gender": "P",
+      "username": "10695",
+      "password": "10695",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 1",
+        "Sosiologi 4",
+        "Bahasa Arab 1",
+        "Biologi 1"
+      ]
+    },
+    {
+      "id": "s-10700",
+      "nis": "10700",
+      "nisn": "0079919790",
+      "name": "ASYIFA NUR RAKHMAH",
+      "gender": "P",
+      "username": "10700",
+      "password": "10700",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 1",
+        "Sosiologi 3",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10708",
+      "nis": "10708",
+      "nisn": "0072098334",
+      "name": "AZKIYA RIHHADATUL'AISY'ULAYYA",
+      "gender": "P",
+      "username": "10708",
+      "password": "10708",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 2",
+        "Matematika TL 2",
+        "Ekonomi 2"
+      ]
+    },
+    {
+      "id": "s-10709",
+      "nis": "10709",
+      "nisn": "0072608291",
+      "name": "BAGAS HERDIANSYAH",
+      "gender": "L",
+      "username": "10709",
+      "password": "10709",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sosiologi 3",
+        "Matematika TL 2",
+        "Ekonomi 2",
+        "Bahasa Arab 1",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10711",
+      "nis": "10711",
+      "nisn": "0076106433",
+      "name": "BERNADETH SHINTA MARIYANI TESALONIKA",
+      "gender": "P",
+      "username": "10711",
+      "password": "10711",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 2",
+        "Matematika TL 2",
+        "Ekonomi 2"
+      ]
+    },
+    {
+      "id": "s-10726",
+      "nis": "10726",
+      "nisn": "3063339789",
+      "name": "DESWITA FITRIYANI",
+      "gender": "P",
+      "username": "10726",
+      "password": "10726",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Sosiologi 5",
+        "Matematika TL 2",
+        "Bahasa Arab 1",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10735",
+      "nis": "10735",
+      "nisn": "0071585137",
+      "name": "ELSA SASCIA",
+      "gender": "P",
+      "username": "10735",
+      "password": "10735",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 3",
+        "Informatika 3",
+        "Geografi 1",
+        "Sosiologi 4"
+      ]
+    },
+    {
+      "id": "s-10751",
+      "nis": "10751",
+      "nisn": "0077900046",
+      "name": "FARHAN TETUKO WICAKSONO",
+      "gender": "L",
+      "username": "10751",
+      "password": "10751",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Sosiologi 5",
+        "Ekonomi 2",
+        "Biologi 1",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-11103",
+      "nis": "11103",
+      "nisn": "0073009627",
+      "name": "GANDIS DAMAYANTI",
+      "gender": "P",
+      "username": "11103",
+      "password": "11103",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-11329",
+      "nis": "11329",
+      "nisn": "0066318419",
+      "name": "KIANDRA DIMAS SYAHPUTRA",
+      "gender": "L",
+      "username": "11329",
+      "password": "11329",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": []
+    },
+    {
+      "id": "s-10776",
+      "nis": "10776",
+      "nisn": "0065987590",
+      "name": "MAHARDIKA",
+      "gender": "L",
+      "username": "10776",
+      "password": "10776",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Geografi 3",
+        "Sosiologi 2",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10785",
+      "nis": "10785",
+      "nisn": "0088955422",
+      "name": "MUHAMAD ALDI FAWZAN",
+      "gender": "L",
+      "username": "10785",
+      "password": "10785",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Matematika TL 1",
+        "Kimia 2",
+        "Fisika",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10788",
+      "nis": "10788",
+      "nisn": "0078365880",
+      "name": "MUHAMAD NUR FAUZAN",
+      "gender": "L",
+      "username": "10788",
+      "password": "10788",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 1",
+        "Geografi 3",
+        "Sosiologi 1",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10794",
+      "nis": "10794",
+      "nisn": "0075731293",
+      "name": "MUHAMMAD FADIL TULLAH",
+      "gender": "L",
+      "username": "10794",
+      "password": "10794",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Geografi 3",
+        "Sosiologi 2",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10799",
+      "nis": "10799",
+      "nisn": "0078161295",
+      "name": "MUHAMMAD REZA ARKA KELANA",
+      "gender": "L",
+      "username": "10799",
+      "password": "10799",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Sosiologi 5",
+        "Ekonomi 2",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10801",
+      "nis": "10801",
+      "nisn": "0074302125",
+      "name": "MUHAMMAD WILDAN",
+      "gender": "L",
+      "username": "10801",
+      "password": "10801",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Geografi 3",
+        "Sosiologi 2",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10802",
+      "nis": "10802",
+      "nisn": "0079506175",
+      "name": "NABILA HANUN DASYEN",
+      "gender": "P",
+      "username": "10802",
+      "password": "10802",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Sosiologi 5",
+        "Kimia 1",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10804",
+      "nis": "10804",
+      "nisn": "0074557476",
+      "name": "NADIA",
+      "gender": "P",
+      "username": "10804",
+      "password": "10804",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 3",
+        "Kimia 1"
+      ]
+    },
+    {
+      "id": "s-10808",
+      "nis": "10808",
+      "nisn": "0072301740",
+      "name": "NIA RAHMAWATI",
+      "gender": "P",
+      "username": "10808",
+      "password": "10808",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 3",
+        "Sosiologi 3",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10812",
+      "nis": "10812",
+      "nisn": "0078992095",
+      "name": "NUR INSANI WIJAYA",
+      "gender": "P",
+      "username": "10812",
+      "password": "10812",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 2",
+        "Sosiologi 2",
+        "Ekonomi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10827",
+      "nis": "10827",
+      "nisn": "0076051713",
+      "name": "RAHMAWATI",
+      "gender": "P",
+      "username": "10827",
+      "password": "10827",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 1",
+        "Sosiologi 3",
+        "Fisika"
+      ]
+    },
+    {
+      "id": "s-10833",
+      "nis": "10833",
+      "nisn": "0082890832",
+      "name": "RANGGA RAMADHAN",
+      "gender": "L",
+      "username": "10833",
+      "password": "10833",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 2",
+        "Matematika TL 1",
+        "Fisika",
+        "Bahasa Arab 1",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10844",
+      "nis": "10844",
+      "nisn": "0077129138",
+      "name": "RIDWAN SAPUTRA",
+      "gender": "L",
+      "username": "10844",
+      "password": "10844",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 3",
+        "Geografi 2",
+        "Sosiologi 2",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10848",
+      "nis": "10848",
+      "nisn": "0079340622",
+      "name": "RIZWAR DUDE MUNANDAR",
+      "gender": "L",
+      "username": "10848",
+      "password": "10848",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 2",
+        "Matematika TL 2",
+        "Ekonomi 2"
+      ]
+    },
+    {
+      "id": "s-10856",
+      "nis": "10856",
+      "nisn": "0077491351",
+      "name": "SENO DWI HARTOPO",
+      "gender": "L",
+      "username": "10856",
+      "password": "10856",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Sosiologi 4",
+        "Matematika TL 1",
+        "Kimia 2"
+      ]
+    },
+    {
+      "id": "s-10863",
+      "nis": "10863",
+      "nisn": "0074989462",
+      "name": "SYAHRIANTI ANGRAENI",
+      "gender": "P",
+      "username": "10863",
+      "password": "10863",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Sosiologi 5",
+        "Kimia 1",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10866",
+      "nis": "10866",
+      "nisn": "0077977694",
+      "name": "TITI HARYATI",
+      "gender": "P",
+      "username": "10866",
+      "password": "10866",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 2",
+        "Sosiologi 1",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10867",
+      "nis": "10867",
+      "nisn": "0074376470",
+      "name": "TRI BAGUS HADI",
+      "gender": "L",
+      "username": "10867",
+      "password": "10867",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Geografi 3",
+        "Sosiologi 2",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10868",
+      "nis": "10868",
+      "nisn": "0074892518",
+      "name": "TRI SETIYA WATI",
+      "gender": "P",
+      "username": "10868",
+      "password": "10868",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 1",
+        "Geografi 3",
+        "Sosiologi 1",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10877",
+      "nis": "10877",
+      "nisn": "0071525918",
+      "name": "YANUAR CAHYADIN",
+      "gender": "L",
+      "username": "10877",
+      "password": "10877",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 3",
+        "Geografi 1",
+        "Fisika",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10878",
+      "nis": "10878",
+      "nisn": "0067253981",
+      "name": "YASMIN AULIA AZZAHRAH",
+      "gender": "P",
+      "username": "10878",
+      "password": "10878",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 3",
+        "Informatika 1",
+        "Geografi 2",
+        "Sosiologi 4"
+      ]
+    },
+    {
+      "id": "s-10880",
+      "nis": "10880",
+      "nisn": "0062287496",
+      "name": "ZAHRA AULIA",
+      "gender": "P",
+      "username": "10880",
+      "password": "10880",
+      "className": "XII.3",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Kimia 2",
+        "Fisika",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10670",
+      "nis": "10670",
+      "nisn": "0075964050",
+      "name": "ABDUL HAKIM",
+      "gender": "L",
+      "username": "10670",
+      "password": "10670",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 1",
+        "Sosiologi 1",
+        "Ekonomi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10672",
+      "nis": "10672",
+      "nisn": "0083987619",
+      "name": "ADELIA HERMAWAN",
+      "gender": "P",
+      "username": "10672",
+      "password": "10672",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Matematika TL 1",
+        "Kimia 2",
+        "Fisika"
+      ]
+    },
+    {
+      "id": "s-10674",
+      "nis": "10674",
+      "nisn": "0065057381",
+      "name": "ADITYA CANDRA",
+      "gender": "L",
+      "username": "10674",
+      "password": "10674",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 1",
+        "Sosiologi 1",
+        "Ekonomi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10677",
+      "nis": "10677",
+      "nisn": "0076020969",
+      "name": "AGIYA CESHNA CALLYSTA",
+      "gender": "P",
+      "username": "10677",
+      "password": "10677",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 1",
+        "Kimia 1",
+        "Bahasa Arab 1",
+        "Biologi 1"
+      ]
+    },
+    {
+      "id": "s-10687",
+      "nis": "10687",
+      "nisn": "0084807879",
+      "name": "ALYCHIA PUTRI ALI",
+      "gender": "P",
+      "username": "10687",
+      "password": "10687",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 3",
+        "Sosiologi 3",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10692",
+      "nis": "10692",
+      "nisn": "0075499535",
+      "name": "AMELIA VEGA",
+      "gender": "P",
+      "username": "10692",
+      "password": "10692",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 3",
+        "Sosiologi 3",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10710",
+      "nis": "10710",
+      "nisn": "0071003815",
+      "name": "BERLIANA INDAH SARI",
+      "gender": "P",
+      "username": "10710",
+      "password": "10710",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 1",
+        "Sosiologi 4",
+        "Bahasa Arab 1",
+        "Biologi 1"
+      ]
+    },
+    {
+      "id": "s-10712",
+      "nis": "10712",
+      "nisn": "0072651006",
+      "name": "BINTA BARIKA RAMADHANI",
+      "gender": "P",
+      "username": "10712",
+      "password": "10712",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 3",
+        "Geografi 3",
+        "Sosiologi 4"
+      ]
+    },
+    {
+      "id": "s-10718",
+      "nis": "10718",
+      "nisn": "0062691285",
+      "name": "CHIKA NOVIYANTI",
+      "gender": "P",
+      "username": "10718",
+      "password": "10718",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 3",
+        "Sosiologi 3",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10739",
+      "nis": "10739",
+      "nisn": "0076195442",
+      "name": "EWO RADEN WIBOWO",
+      "gender": "L",
+      "username": "10739",
+      "password": "10739",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 1",
+        "Geografi 3",
+        "Sosiologi 1",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10741",
+      "nis": "10741",
+      "nisn": "0079349878",
+      "name": "FACHRI DANU ALAM",
+      "gender": "L",
+      "username": "10741",
+      "password": "10741",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 1",
+        "Sosiologi 4",
+        "Bahasa Arab 1",
+        "Biologi 1"
+      ]
+    },
+    {
+      "id": "s-10745",
+      "nis": "10745",
+      "nisn": "0073977744",
+      "name": "FAHRULLI MELISA AZZAHRA",
+      "gender": "P",
+      "username": "10745",
+      "password": "10745",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 2",
+        "Geografi 1",
+        "Kimia 1",
+        "Bahasa Arab 1"
+      ]
+    },
+    {
+      "id": "s-10762",
+      "nis": "10762",
+      "nisn": "0073377279",
+      "name": "HAFIDZ ZIDANE EFFENDI",
+      "gender": "L",
+      "username": "10762",
+      "password": "10762",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 1",
+        "Sosiologi 4",
+        "Bahasa Arab 1",
+        "Biologi 1"
+      ]
+    },
+    {
+      "id": "s-10766",
+      "nis": "10766",
+      "nisn": "0066909171",
+      "name": "IRFAN MINANSYAH",
+      "gender": "L",
+      "username": "10766",
+      "password": "10766",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Geografi 3",
+        "Sosiologi 2",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10767",
+      "nis": "10767",
+      "nisn": "0051593499",
+      "name": "JAJA SUBAGJA",
+      "gender": "L",
+      "username": "10767",
+      "password": "10767",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 1",
+        "Geografi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10777",
+      "nis": "10777",
+      "nisn": "0075181417",
+      "name": "MARIA ANATASA",
+      "gender": "P",
+      "username": "10777",
+      "password": "10777",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 3",
+        "Geografi 2",
+        "Sosiologi 4",
+        "Ekonomi 2"
+      ]
+    },
+    {
+      "id": "s-10778",
+      "nis": "10778",
+      "nisn": "0077170467",
+      "name": "MAULIKA AHMAD",
+      "gender": "P",
+      "username": "10778",
+      "password": "10778",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 3",
+        "Informatika 3",
+        "Geografi 1",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10782",
+      "nis": "10782",
+      "nisn": "0074806816",
+      "name": "MOCHAMAD DAFFAH FIRMANSYAH",
+      "gender": "L",
+      "username": "10782",
+      "password": "10782",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 3",
+        "Informatika 1",
+        "Geografi 2",
+        "Sosiologi 4"
+      ]
+    },
+    {
+      "id": "s-10792",
+      "nis": "10792",
+      "nisn": "0066048771",
+      "name": "MUHAMMAD ABI ABDUL AZIS",
+      "gender": "L",
+      "username": "10792",
+      "password": "10792",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 1",
+        "Geografi 3",
+        "Sosiologi 1",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10798",
+      "nis": "10798",
+      "nisn": "0079798851",
+      "name": "MUHAMMAD RAFI",
+      "gender": "L",
+      "username": "10798",
+      "password": "10798",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 2",
+        "Geografi 2",
+        "Sosiologi 4"
+      ]
+    },
+    {
+      "id": "s-10807",
+      "nis": "10807",
+      "nisn": "0078808197",
+      "name": "NAZWA LITA AYUDIAH",
+      "gender": "P",
+      "username": "10807",
+      "password": "10807",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 1",
+        "Sosiologi 4",
+        "Bahasa Arab 1",
+        "Biologi 1"
+      ]
+    },
+    {
+      "id": "s-10809",
+      "nis": "10809",
+      "nisn": "0074734735",
+      "name": "NINDI AMANDA PUTRI",
+      "gender": "P",
+      "username": "10809",
+      "password": "10809",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 3",
+        "Geografi 2",
+        "Sosiologi 2",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10810",
+      "nis": "10810",
+      "nisn": "0072844433",
+      "name": "NOOR JUAN DEVRANSACH",
+      "gender": "L",
+      "username": "10810",
+      "password": "10810",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Geografi 1",
+        "Kimia 2",
+        "Fisika"
+      ]
+    },
+    {
+      "id": "s-10819",
+      "nis": "10819",
+      "nisn": "0081831720",
+      "name": "PRAJNA PARAMITA NUR EKA SATRIYA",
+      "gender": "P",
+      "username": "10819",
+      "password": "10819",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 3",
+        "Matematika TL 1",
+        "Fisika",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10829",
+      "nis": "10829",
+      "nisn": "0057125531",
+      "name": "RAIHAN QUDRI",
+      "gender": "L",
+      "username": "10829",
+      "password": "10829",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Geografi 1",
+        "Ekonomi 1",
+        "Biologi 1"
+      ]
+    },
+    {
+      "id": "s-10837",
+      "nis": "10837",
+      "nisn": "0072509253",
+      "name": "RATU SEPTIA ZAHRA",
+      "gender": "P",
+      "username": "10837",
+      "password": "10837",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 3",
+        "Matematika TL 1",
+        "Kimia 2",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10840",
+      "nis": "10840",
+      "nisn": "0074347481",
+      "name": "REINANDA RAFEYFA IMANSYAH",
+      "gender": "P",
+      "username": "10840",
+      "password": "10840",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Geografi 2",
+        "Sosiologi 4",
+        "Ekonomi 3"
+      ]
+    },
+    {
+      "id": "s-10843",
+      "nis": "10843",
+      "nisn": "0067696042",
+      "name": "RIDHO AFRIYADI",
+      "gender": "L",
+      "username": "10843",
+      "password": "10843",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Geografi 3",
+        "Sosiologi 2",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10849",
+      "nis": "10849",
+      "nisn": "0075848893",
+      "name": "RONALDO PUTRA PRATAMA",
+      "gender": "L",
+      "username": "10849",
+      "password": "10849",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 3",
+        "Sosiologi 3",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10854",
+      "nis": "10854",
+      "nisn": "0082944191",
+      "name": "SEKAR ADILA RANUM",
+      "gender": "P",
+      "username": "10854",
+      "password": "10854",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 1",
+        "Geografi 3",
+        "Matematika TL 2"
+      ]
+    },
+    {
+      "id": "s-10855",
+      "nis": "10855",
+      "nisn": "0071431576",
+      "name": "SELFIA INDRIYANI",
+      "gender": "P",
+      "username": "10855",
+      "password": "10855",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 3",
+        "Sosiologi 3",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10861",
+      "nis": "10861",
+      "nisn": "0078029042",
+      "name": "STANLEY WIJAYA",
+      "gender": "L",
+      "username": "10861",
+      "password": "10861",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 3",
+        "Sosiologi 3",
+        "Matematika TL 2"
+      ]
+    },
+    {
+      "id": "s-10862",
+      "nis": "10862",
+      "nisn": "0073429142",
+      "name": "SYAHBUDIN",
+      "gender": "L",
+      "username": "10862",
+      "password": "10862",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 1",
+        "Sosiologi 1",
+        "Ekonomi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10864",
+      "nis": "10864",
+      "nisn": "0074931292",
+      "name": "SYAKILLA ZAHROTUL YOHANA",
+      "gender": "P",
+      "username": "10864",
+      "password": "10864",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Sosiologi 5",
+        "Fisika",
+        "Ekonomi 2"
+      ]
+    },
+    {
+      "id": "s-10865",
+      "nis": "10865",
+      "nisn": "0082050564",
+      "name": "TALITHA CLARISSA SALSABILA",
+      "gender": "P",
+      "username": "10865",
+      "password": "10865",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Sosiologi 5",
+        "Matematika TL 2",
+        "Ekonomi 2"
+      ]
+    },
+    {
+      "id": "s-10874",
+      "nis": "10874",
+      "nisn": "0069814322",
+      "name": "VITA FERTIKA SARI",
+      "gender": "P",
+      "username": "10874",
+      "password": "10874",
+      "className": "XII.4",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Sosiologi 2",
+        "Ekonomi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10673",
+      "nis": "10673",
+      "nisn": "0065326247",
+      "name": "ADITYA BIMANTARA SAPUTRA",
+      "gender": "L",
+      "username": "10673",
+      "password": "10673",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Sosiologi 4",
+        "Matematika TL 1",
+        "Kimia 2"
+      ]
+    },
+    {
+      "id": "s-10680",
+      "nis": "10680",
+      "nisn": "0077499498",
+      "name": "AHMAD RAHVANELLI",
+      "gender": "L",
+      "username": "10680",
+      "password": "10680",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 1",
+        "Sosiologi 4",
+        "Bahasa Arab 1",
+        "Biologi 1"
+      ]
+    },
+    {
+      "id": "s-10681",
+      "nis": "10681",
+      "nisn": "0064211796",
+      "name": "AHMAD RISKI ARIANSYAH",
+      "gender": "L",
+      "username": "10681",
+      "password": "10681",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 3",
+        "Fisika",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10683",
+      "nis": "10683",
+      "nisn": "0064709738",
+      "name": "AKMAL SAWAL",
+      "gender": "L",
+      "username": "10683",
+      "password": "10683",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 1",
+        "Sosiologi 4",
+        "Bahasa Arab 1",
+        "Biologi 1"
+      ]
+    },
+    {
+      "id": "s-10691",
+      "nis": "10691",
+      "nisn": "0079089657",
+      "name": "AMELIA SEPIANA",
+      "gender": "P",
+      "username": "10691",
+      "password": "10691",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 1",
+        "Sosiologi 1",
+        "Ekonomi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10694",
+      "nis": "10694",
+      "nisn": "0082693508",
+      "name": "ANASYA PUTRI HARYANTI",
+      "gender": "P",
+      "username": "10694",
+      "password": "10694",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 3",
+        "Sosiologi 3",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10701",
+      "nis": "10701",
+      "nisn": "0074628369",
+      "name": "AULIA AZZAHRA",
+      "gender": "P",
+      "username": "10701",
+      "password": "10701",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Sosiologi 4",
+        "Kimia 2",
+        "Bahasa Arab 1"
+      ]
+    },
+    {
+      "id": "s-10702",
+      "nis": "10702",
+      "nisn": "0071990440",
+      "name": "AULIA SYAFIRA",
+      "gender": "P",
+      "username": "10702",
+      "password": "10702",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 2",
+        "Sosiologi 1",
+        "Matematika TL 2",
+        "Ekonomi 2"
+      ]
+    },
+    {
+      "id": "s-10714",
+      "nis": "10714",
+      "nisn": "0063200970",
+      "name": "BUNGA FADILLAH AYANAH",
+      "gender": "P",
+      "username": "10714",
+      "password": "10714",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 3",
+        "Sosiologi 3",
+        "Matematika TL 2",
+        "Ekonomi 2"
+      ]
+    },
+    {
+      "id": "s-10723",
+      "nis": "10723",
+      "nisn": "0074820325",
+      "name": "DEA ANNISA AZAHRA",
+      "gender": "P",
+      "username": "10723",
+      "password": "10723",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 3",
+        "Sosiologi 3",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10731",
+      "nis": "10731",
+      "nisn": "0077763302",
+      "name": "DIMAS SATRIO FAVIAN",
+      "gender": "L",
+      "username": "10731",
+      "password": "10731",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 1",
+        "Fisika",
+        "Biologi 1"
+      ]
+    },
+    {
+      "id": "s-10732",
+      "nis": "10732",
+      "nisn": "0074225926",
+      "name": "DINMAS AR RAFI",
+      "gender": "L",
+      "username": "10732",
+      "password": "10732",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 2",
+        "Sosiologi 2",
+        "Ekonomi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10746",
+      "nis": "10746",
+      "nisn": "0074870857",
+      "name": "FAHRY YAHYA AL BAYHAQI",
+      "gender": "L",
+      "username": "10746",
+      "password": "10746",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 3",
+        "Sosiologi 3",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10749",
+      "nis": "10749",
+      "nisn": "0086663551",
+      "name": "FARELIA AINI GUNAWAN",
+      "gender": "P",
+      "username": "10749",
+      "password": "10749",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 3",
+        "Matematika TL 1",
+        "Fisika",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10750",
+      "nis": "10750",
+      "nisn": "0075096646",
+      "name": "FARHAN FA'IZUL HUDA",
+      "gender": "L",
+      "username": "10750",
+      "password": "10750",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 2",
+        "Matematika TL 1",
+        "Fisika"
+      ]
+    },
+    {
+      "id": "s-10753",
+      "nis": "10753",
+      "nisn": "0088778609",
+      "name": "FERA ZAHRATU SYITA",
+      "gender": "P",
+      "username": "10753",
+      "password": "10753",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sosiologi 1",
+        "Matematika TL 1",
+        "Kimia 2",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10757",
+      "nis": "10757",
+      "nisn": "0076052219",
+      "name": "FREDRIX WILLIAM HELAU",
+      "gender": "L",
+      "username": "10757",
+      "password": "10757",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 2",
+        "Matematika TL 1",
+        "Fisika"
+      ]
+    },
+    {
+      "id": "s-10758",
+      "nis": "10758",
+      "nisn": "0086890137",
+      "name": "GALIH AZHAR KURNIAPUTRA",
+      "gender": "L",
+      "username": "10758",
+      "password": "10758",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 2",
+        "Geografi 2",
+        "Matematika TL 1",
+        "Fisika"
+      ]
+    },
+    {
+      "id": "s-10764",
+      "nis": "10764",
+      "nisn": "0089444396",
+      "name": "IBNU HILMI",
+      "gender": "L",
+      "username": "10764",
+      "password": "10764",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 2",
+        "Matematika TL 1",
+        "Fisika",
+        "Bahasa Arab 1",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-11105",
+      "nis": "11105",
+      "nisn": "0071732820",
+      "name": "JIAULHAQ FADEL",
+      "gender": "L",
+      "username": "11105",
+      "password": "11105",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2"
+      ]
+    },
+    {
+      "id": "s-10770",
+      "nis": "10770",
+      "nisn": "0076114179",
+      "name": "KAYLA NURIKA PUTRI",
+      "gender": "P",
+      "username": "10770",
+      "password": "10770",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Matematika TL 1",
+        "Kimia 2",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10887",
+      "nis": "10887",
+      "nisn": "0075039116",
+      "name": "KHALIFAH ANNASTASYA",
+      "gender": "P",
+      "username": "10887",
+      "password": "10887",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Geografi 3",
+        "Sosiologi 1",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10774",
+      "nis": "10774",
+      "nisn": "0079172899",
+      "name": "LUTVIAH NUR ADMAJA",
+      "gender": "P",
+      "username": "10774",
+      "password": "10774",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 3",
+        "Sosiologi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10783",
+      "nis": "10783",
+      "nisn": "0077942816",
+      "name": "MOCHAMMAD REZA FAHLEVI",
+      "gender": "L",
+      "username": "10783",
+      "password": "10783",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 1",
+        "Sosiologi 1",
+        "Ekonomi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10811",
+      "nis": "10811",
+      "nisn": "0062633502",
+      "name": "NOVARISA PUSPA NINGRUM",
+      "gender": "P",
+      "username": "10811",
+      "password": "10811",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 3",
+        "Sosiologi 3",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10814",
+      "nis": "10814",
+      "nisn": "0071018131",
+      "name": "NUR SANDRIA AZILA",
+      "gender": "P",
+      "username": "10814",
+      "password": "10814",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Sosiologi 5",
+        "Kimia 1",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10815",
+      "nis": "10815",
+      "nisn": "0073425800",
+      "name": "NURUL MUBAROK",
+      "gender": "P",
+      "username": "10815",
+      "password": "10815",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Geografi 3",
+        "Sosiologi 1",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10817",
+      "nis": "10817",
+      "nisn": "0062011423",
+      "name": "PANJI ASMARA PUTRA",
+      "gender": "L",
+      "username": "10817",
+      "password": "10817",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 2",
+        "Matematika TL 1",
+        "Fisika"
+      ]
+    },
+    {
+      "id": "s-10826",
+      "nis": "10826",
+      "nisn": "0073278396",
+      "name": "RAHMATTULLOH TABRANI",
+      "gender": "L",
+      "username": "10826",
+      "password": "10826",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 2",
+        "Matematika TL 2",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10830",
+      "nis": "10830",
+      "nisn": "0071402007",
+      "name": "RAINA FIRDAUSI",
+      "gender": "P",
+      "username": "10830",
+      "password": "10830",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 3",
+        "Informatika 1",
+        "Geografi 2",
+        "Sosiologi 4"
+      ]
+    },
+    {
+      "id": "s-10834",
+      "nis": "10834",
+      "nisn": "0079423612",
+      "name": "RANI AULIA",
+      "gender": "P",
+      "username": "10834",
+      "password": "10834",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 3",
+        "Informatika 3",
+        "Geografi 1",
+        "Sosiologi 4"
+      ]
+    },
+    {
+      "id": "s-10836",
+      "nis": "10836",
+      "nisn": "0076275489",
+      "name": "RARA SABELLA",
+      "gender": "P",
+      "username": "10836",
+      "password": "10836",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Sosiologi 1",
+        "Kimia 2",
+        "Fisika"
+      ]
+    },
+    {
+      "id": "s-10853",
+      "nis": "10853",
+      "nisn": "0077871941",
+      "name": "SAYYIDA NAFISA PERMANA",
+      "gender": "P",
+      "username": "10853",
+      "password": "10853",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 3",
+        "Sosiologi 3",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10859",
+      "nis": "10859",
+      "nisn": "0078051584",
+      "name": "SITI MARWAH WIJAYA",
+      "gender": "P",
+      "username": "10859",
+      "password": "10859",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 3",
+        "Geografi 3",
+        "Sosiologi 4"
+      ]
+    },
+    {
+      "id": "s-10873",
+      "nis": "10873",
+      "nisn": "0077157179",
+      "name": "VINA WARDATUSSYIFA",
+      "gender": "P",
+      "username": "10873",
+      "password": "10873",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 3",
+        "Sosiologi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10879",
+      "nis": "10879",
+      "nisn": "0064470094",
+      "name": "YULIYANTI",
+      "gender": "P",
+      "username": "10879",
+      "password": "10879",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 2",
+        "Sosiologi 1",
+        "Matematika TL 1",
+        "Kimia 1"
+      ]
+    },
+    {
+      "id": "s-10881",
+      "nis": "10881",
+      "nisn": "0074884285",
+      "name": "ZAKI MAULIDIAN",
+      "gender": "L",
+      "username": "10881",
+      "password": "10881",
+      "className": "XII.5",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 1",
+        "Sosiologi 5",
+        "Bahasa Arab 1",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10671",
+      "nis": "10671",
+      "nisn": "0078915316",
+      "name": "ACHMAD TAJRI ABSORI",
+      "gender": "L",
+      "username": "10671",
+      "password": "10671",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 1",
+        "Ekonomi 1",
+        "Biologi 1"
+      ]
+    },
+    {
+      "id": "s-10675",
+      "nis": "10675",
+      "nisn": "0062632647",
+      "name": "AFRILIYANI",
+      "gender": "P",
+      "username": "10675",
+      "password": "10675",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Sosiologi 5",
+        "Kimia 1",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10678",
+      "nis": "10678",
+      "nisn": "0065566684",
+      "name": "AGUNG",
+      "gender": "L",
+      "username": "10678",
+      "password": "10678",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 3",
+        "Sosiologi 3",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10688",
+      "nis": "10688",
+      "nisn": "0078175885",
+      "name": "AMELIA LIDIA PRATIWI",
+      "gender": "P",
+      "username": "10688",
+      "password": "10688",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sosiologi 2",
+        "Kimia 1",
+        "Bahasa Arab 1",
+        "Biologi 1",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10697",
+      "nis": "10697",
+      "nisn": "0078223679",
+      "name": "AQILAH DHAWIYA RASIKHA",
+      "gender": "P",
+      "username": "10697",
+      "password": "10697",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 2",
+        "Kimia 1",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10705",
+      "nis": "10705",
+      "nisn": "0073371014",
+      "name": "AYU KURNIA SARI",
+      "gender": "P",
+      "username": "10705",
+      "password": "10705",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Sosiologi 5",
+        "Kimia 1",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10713",
+      "nis": "10713",
+      "nisn": "0081369767",
+      "name": "BUNGA DAHLIA RAMAWAN",
+      "gender": "P",
+      "username": "10713",
+      "password": "10713",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Geografi 3",
+        "Sosiologi 1",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10722",
+      "nis": "10722",
+      "nisn": "0063538718",
+      "name": "CUT ZAHRA YUSRIYAH RAMADHANI",
+      "gender": "P",
+      "username": "10722",
+      "password": "10722",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Sosiologi 5",
+        "Kimia 1",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10725",
+      "nis": "10725",
+      "nisn": "0068999897",
+      "name": "DEPA PRIYOLA",
+      "gender": "P",
+      "username": "10725",
+      "password": "10725",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Geografi 3",
+        "Sosiologi 1",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10730",
+      "nis": "10730",
+      "nisn": "0073145551",
+      "name": "DIAZ RUDIANSYAH",
+      "gender": "L",
+      "username": "10730",
+      "password": "10730",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 3",
+        "Sosiologi 3",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10736",
+      "nis": "10736",
+      "nisn": "0075532355",
+      "name": "EMUT AMRIH WIJAYANTI",
+      "gender": "P",
+      "username": "10736",
+      "password": "10736",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 2",
+        "Matematika TL 2",
+        "Ekonomi 2"
+      ]
+    },
+    {
+      "id": "s-10742",
+      "nis": "10742",
+      "nisn": "0075282482",
+      "name": "FACHRI SANDI HIDAYAT",
+      "gender": "L",
+      "username": "10742",
+      "password": "10742",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 1",
+        "Geografi 3",
+        "Fisika"
+      ]
+    },
+    {
+      "id": "s-10744",
+      "nis": "10744",
+      "nisn": "0062287810",
+      "name": "FAHRIZAL PUTRA BHAKTI",
+      "gender": "L",
+      "username": "10744",
+      "password": "10744",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Informatika 1",
+        "Geografi 3",
+        "Fisika"
+      ]
+    },
+    {
+      "id": "s-10747",
+      "nis": "10747",
+      "nisn": "0062454871",
+      "name": "FAJAR RAMADAN",
+      "gender": "L",
+      "username": "10747",
+      "password": "10747",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 3",
+        "Geografi 1",
+        "Bahasa Arab 1",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10761",
+      "nis": "10761",
+      "nisn": "0058777655",
+      "name": "GILANG MOHAMMAD SYA'BANI AZZIKRI",
+      "gender": "L",
+      "username": "10761",
+      "password": "10761",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Sosiologi 2",
+        "Ekonomi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10765",
+      "nis": "10765",
+      "nisn": "0073526260",
+      "name": "INAYATU DZIL IZZATI",
+      "gender": "P",
+      "username": "10765",
+      "password": "10765",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Sosiologi 5",
+        "Matematika TL 2",
+        "Ekonomi 2"
+      ]
+    },
+    {
+      "id": "s-10768",
+      "nis": "10768",
+      "nisn": "0071685253",
+      "name": "JASYCA AFIA PUTRI",
+      "gender": "P",
+      "username": "10768",
+      "password": "10768",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Sosiologi 5",
+        "Matematika TL 2",
+        "Ekonomi 2"
+      ]
+    },
+    {
+      "id": "s-10779",
+      "nis": "10779",
+      "nisn": "0073109313",
+      "name": "MAYSIKAH NURAIN",
+      "gender": "P",
+      "username": "10779",
+      "password": "10779",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 3",
+        "Sosiologi 3",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10780",
+      "nis": "10780",
+      "nisn": "0085393333",
+      "name": "MEDYNA RAHMADILLAH HARAHAP",
+      "gender": "P",
+      "username": "10780",
+      "password": "10780",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 3",
+        "Informatika 3",
+        "Geografi 1",
+        "Sosiologi 4"
+      ]
+    },
+    {
+      "id": "s-10781",
+      "nis": "10781",
+      "nisn": "0078792877",
+      "name": "MIA RAHMANIA",
+      "gender": "P",
+      "username": "10781",
+      "password": "10781",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 2",
+        "Matematika TL 1",
+        "Kimia 2",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10786",
+      "nis": "10786",
+      "nisn": "0062720768",
+      "name": "MUHAMAD ALIF",
+      "gender": "L",
+      "username": "10786",
+      "password": "10786",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 1",
+        "Geografi 3",
+        "Sosiologi 1",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10789",
+      "nis": "10789",
+      "nisn": "0078724054",
+      "name": "MUHAMAD RAZKA ADRIAN",
+      "gender": "L",
+      "username": "10789",
+      "password": "10789",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 1",
+        "Sosiologi 4",
+        "Ekonomi 3",
+        "Bahasa Arab 1",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10790",
+      "nis": "10790",
+      "nisn": "0071616641",
+      "name": "MUHAMAD SAPUTRA",
+      "gender": "L",
+      "username": "10790",
+      "password": "10790",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 3",
+        "Informatika 3",
+        "Geografi 1",
+        "Sosiologi 4"
+      ]
+    },
+    {
+      "id": "s-10796",
+      "nis": "10796",
+      "nisn": "0082686770",
+      "name": "MUHAMMAD KEANU VHERDANIAL",
+      "gender": "L",
+      "username": "10796",
+      "password": "10796",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 1",
+        "Geografi 3",
+        "Sosiologi 1",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10800",
+      "nis": "10800",
+      "nisn": "0067287799",
+      "name": "MUHAMMAD RIZKI",
+      "gender": "L",
+      "username": "10800",
+      "password": "10800",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Geografi 1",
+        "Sosiologi 5",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10805",
+      "nis": "10805",
+      "nisn": "0074903246",
+      "name": "NADIA YUSUF",
+      "gender": "P",
+      "username": "10805",
+      "password": "10805",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Geografi 2",
+        "Sosiologi 4",
+        "Ekonomi 3"
+      ]
+    },
+    {
+      "id": "s-10806",
+      "nis": "10806",
+      "nisn": "0085220775",
+      "name": "NADYA SYAFIRA ANDINI",
+      "gender": "P",
+      "username": "10806",
+      "password": "10806",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 3",
+        "Sosiologi 3",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10822",
+      "nis": "10822",
+      "nisn": "0077522577",
+      "name": "RACHEL REGITA DWI CAHYANI",
+      "gender": "P",
+      "username": "10822",
+      "password": "10822",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 1",
+        "Informatika 3",
+        "Sosiologi 3",
+        "Ekonomi 1"
+      ]
+    },
+    {
+      "id": "s-10823",
+      "nis": "10823",
+      "nisn": "0069081422",
+      "name": "RAFLY ARDIANSYAH",
+      "gender": "L",
+      "username": "10823",
+      "password": "10823",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 1",
+        "Geografi 3",
+        "Sosiologi 1",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10838",
+      "nis": "10838",
+      "nisn": "0076932693",
+      "name": "RAVLY HARDIANSYAH",
+      "gender": "L",
+      "username": "10838",
+      "password": "10838",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Geografi 1",
+        "Sosiologi 1",
+        "Ekonomi 3",
+        "Bahasa Arab 2"
+      ]
+    },
+    {
+      "id": "s-10842",
+      "nis": "10842",
+      "nisn": "0063555246",
+      "name": "REYSA ANLI",
+      "gender": "L",
+      "username": "10842",
+      "password": "10842",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Sosiologi 5",
+        "Ekonomi 2",
+        "Biologi 2"
+      ]
+    },
+    {
+      "id": "s-10852",
+      "nis": "10852",
+      "nisn": "0087753294",
+      "name": "SANDY DWI PRASTIAWAN",
+      "gender": "L",
+      "username": "10852",
+      "password": "10852",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Informatika 1",
+        "Sosiologi 1",
+        "Kimia 1",
+        "Biologi 1"
+      ]
+    },
+    {
+      "id": "s-10857",
+      "nis": "10857",
+      "nisn": "0071407531",
+      "name": "SEPTIA MAWAR RAMADHON",
+      "gender": "P",
+      "username": "10857",
+      "password": "10857",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 3",
+        "Informatika 1",
+        "Geografi 2",
+        "Sosiologi 4"
+      ]
+    },
+    {
+      "id": "s-10858",
+      "nis": "10858",
+      "nisn": "0079077715",
+      "name": "SHIFA DWI RAHMADINA",
+      "gender": "P",
+      "username": "10858",
+      "password": "10858",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 5",
+        "Sosiologi 5",
+        "Kimia 1",
+        "Biologi 3"
+      ]
+    },
+    {
+      "id": "s-10869",
+      "nis": "10869",
+      "nisn": "0079829463",
+      "name": "TRISTA DWI AYU LESTARI",
+      "gender": "P",
+      "username": "10869",
+      "password": "10869",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 4",
+        "Geografi 3",
+        "Sosiologi 2",
+        "Fisika"
+      ]
+    },
+    {
+      "id": "s-10883",
+      "nis": "10883",
+      "nisn": "0075756012",
+      "name": "ZARINA MAULIDA APANDI",
+      "gender": "P",
+      "username": "10883",
+      "password": "10883",
+      "className": "XII.6",
+      "room": "-",
+      "session": "-",
+      "electiveSubjects": [
+        "Sejarah TL 3",
+        "Informatika 1",
+        "Geografi 2",
+        "Sosiologi 4"
+      ]
+    }
+  ],
+  "exams": [
+    {
+      "id": "exam-inf-xii",
+      "code": "INFOR-XII-01",
+      "subject": "Informatika XII",
+      "teacherId": "u-guru-inf",
+      "date": "2026-06-10",
+      "startTime": "08:00",
+      "durationMinutes": 90,
+      "token": "IN94",
+      "status": "published",
+      "randomizeQuestions": true,
+      "randomizeOptions": true
+    },
+    {
+      "id": "exam-mpwjuld7-2uf1r",
+      "code": "B Indo",
+      "subject": "Bahasa Indonesia",
+      "teacherId": "u-guru-inf",
+      "date": "2026-06-16",
+      "startTime": "07:30",
+      "durationMinutes": 90,
+      "token": "5541",
+      "status": "draft",
+      "randomizeQuestions": true,
+      "randomizeOptions": true
+    }
+  ],
+  "questions": [
+    {
+      "id": "q-1",
+      "examId": "exam-inf-xii",
+      "type": "multiple_choice",
+      "body": "Apa yang dimaksud dengan literasi digital?",
+      "options": [
+        {
+          "key": "A",
+          "text": "Kemampuan membaca dan menulis di perangkat digital."
+        },
+        {
+          "key": "B",
+          "text": "Kemampuan menggunakan internet untuk belanja online."
+        },
+        {
+          "key": "C",
+          "text": "Kemampuan memahami dan menggunakan informasi digital secara efektif."
+        },
+        {
+          "key": "D",
+          "text": "Kemampuan mengunduh aplikasi dari internet."
+        },
+        {
+          "key": "E",
+          "text": "Kemampuan bermain game online."
+        }
+      ],
+      "answerKey": "C",
+      "score": 1
+    },
+    {
+      "id": "q-mpwiqefv-zh3yj",
+      "examId": "exam-inf-xii",
+      "type": "multiple_choice",
+      "body": "berapa banyak",
+      "options": [
+        {
+          "key": "A",
+          "text": "1"
+        },
+        {
+          "key": "B",
+          "text": "2"
+        },
+        {
+          "key": "C",
+          "text": "3"
+        },
+        {
+          "key": "D",
+          "text": "4"
+        },
+        {
+          "key": "E",
+          "text": "5"
+        }
+      ],
+      "answerKey": "B",
+      "score": 3
+    }
+  ],
+  "attempts": [
+    {
+      "id": "a-1",
+      "examId": "exam-inf-xii",
+      "studentId": "s-10676",
+      "status": "in_progress",
+      "score": null,
+      "updatedAt": "2026-06-02T08:13:07.025Z",
+      "answers": {
+        "q-1": "C"
+      },
+      "startedAt": "2026-06-02T08:13:06.976Z",
+      "submittedAt": null
+    },
+    {
+      "id": "attempt-mpwd3x4h-nffbs",
+      "examId": "exam-inf-xii",
+      "studentId": "s-10693",
+      "status": "not_started",
+      "answers": {},
+      "score": null,
+      "startedAt": null,
+      "submittedAt": null,
+      "updatedAt": null
+    },
+    {
+      "id": "attempt-mpwkb02o-byb4h",
+      "examId": "exam-inf-xii",
+      "studentId": "s-10690",
+      "status": "not_started",
+      "answers": {},
+      "score": null,
+      "startedAt": null,
+      "submittedAt": null,
+      "updatedAt": null
+    }
+  ],
+  "violations": [
+    {
+      "id": "v-1",
+      "studentId": "s-10676",
+      "examId": "exam-inf-xii",
+      "type": "heartbeat_ready",
+      "level": "info",
+      "message": "Client siap mengirim heartbeat saat ujian.",
+      "createdAt": "2026-06-02T07:00:00.000Z"
+    }
+  ]
+}
