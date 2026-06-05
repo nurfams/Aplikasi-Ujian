@@ -1,14 +1,15 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import QRCode from "qrcode";
 import readXlsxFile from "read-excel-file/browser";
 import {
   AlertTriangle,
+  ALargeSmall,
   BookOpen,
   CalendarDays,
   CheckCircle2,
   ClipboardList,
   CreditCard,
+  Download,
   KeyRound,
   ListChecks,
   LayoutDashboard,
@@ -17,6 +18,7 @@ import {
   PlayCircle,
   Plus,
   Printer,
+  RefreshCw,
   Save,
   Search,
   Send,
@@ -28,8 +30,10 @@ import {
 } from "lucide-react";
 import "./styles.css";
 
-const API = "http://127.0.0.1:4100/api";
+const API_HOST = window.location.hostname || "127.0.0.1";
+const API = `http://${API_HOST}:4100/api`;
 const SESSION_KEY = "cbt_sman94_session";
+const EXAM_FONT_SIZE_KEY = "cbt_sman94_exam_font_size";
 
 function readSession() {
   try {
@@ -110,12 +114,105 @@ function parseQuestionText(text, examId) {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
+  const officialQuestions = parseOfficialQuestionText(lines, examId);
+  if (officialQuestions.length) return officialQuestions;
+
+  return parseLegacyQuestionText(lines, examId);
+}
+
+function questionTypeFromText(value) {
+  const type = String(value || "").trim().toLowerCase();
+  if (["checklist", "pgk", "pg kompleks", "pilihan ganda kompleks", "multiple_response"].includes(type)) return "multiple_response";
+  return "multiple_choice";
+}
+
+function splitAnswerKeys(value) {
+  return String(value || "")
+    .toUpperCase()
+    .split(/[,;/\s]+/)
+    .map((item) => item.trim())
+    .filter((item) => OPTION_KEYS.includes(item));
+}
+
+function parseOfficialQuestionText(lines, examId) {
   const questions = [];
   let current = null;
+  let section = "";
+  let activeOptionKey = "";
 
   function finishCurrent() {
     if (!current) return;
     current.body = current.body.trim();
+    current.options = current.options.map((option) => ({ ...option, text: option.text.trim() })).filter((option) => option.text);
+    if (current.type === "multiple_response" && current.body && current.options.length >= 2 && current.correctAnswers.length) {
+      questions.push(current);
+    } else if (current.type === "multiple_choice" && current.body && current.options.length >= 2 && current.answerKey) {
+      questions.push(current);
+    }
+  }
+
+  for (const line of lines) {
+    const typeMatch = line.match(/^\[?\s*tipe\s*:\s*([^\]]+?)\s*\]?$/i);
+    const questionLabelMatch = line.match(/^soal\s*:\s*(.*)$/i);
+    const optionMatch = line.match(/^([A-E])[\).]\s*(.*)$/i);
+    const keyMatch = line.match(/^(kunci|jawaban|answer)\s*[:=]\s*(.+)$/i);
+    const scoreMatch = line.match(/^(bobot|skor|score)\s*[:=]?\s*(\d+(?:[.,]\d+)?)/i);
+
+    if (typeMatch) {
+      finishCurrent();
+      current = {
+        examId,
+        type: questionTypeFromText(typeMatch[1]),
+        body: "",
+        options: [],
+        answerKey: "",
+        correctAnswers: [],
+        score: 1
+      };
+      section = "body";
+      activeOptionKey = "";
+    } else if (current && questionLabelMatch) {
+      section = "body";
+      activeOptionKey = "";
+      if (questionLabelMatch[1]) current.body = questionLabelMatch[1];
+    } else if (current && optionMatch) {
+      activeOptionKey = optionMatch[1].toUpperCase();
+      section = "option";
+      current.options.push({ key: activeOptionKey, text: optionMatch[2] || "" });
+    } else if (current && keyMatch) {
+      const keys = splitAnswerKeys(keyMatch[2]);
+      current.correctAnswers = keys;
+      current.answerKey = keys[0] || "";
+      if (keys.length > 1) current.type = "multiple_response";
+      section = "";
+      activeOptionKey = "";
+    } else if (current && scoreMatch) {
+      current.score = Number(scoreMatch[2].replace(",", ".")) || 1;
+      section = "";
+      activeOptionKey = "";
+    } else if (current) {
+      if (section === "option" && activeOptionKey) {
+        const option = current.options.find((item) => item.key === activeOptionKey);
+        if (option) option.text = `${option.text}${option.text ? "\n" : ""}${line}`;
+      } else {
+        current.body = `${current.body}${current.body ? "\n" : ""}${line}`;
+      }
+    }
+  }
+
+  finishCurrent();
+  return questions;
+}
+
+function parseLegacyQuestionText(lines, examId) {
+  const questions = [];
+  let current = null;
+  let activeOptionKey = "";
+
+  function finishCurrent() {
+    if (!current) return;
+    current.body = current.body.trim();
+    current.options = current.options.map((option) => ({ ...option, text: option.text.trim() })).filter((option) => option.text);
     if (current.body && current.options.length >= 2 && current.answerKey) {
       questions.push(current);
     }
@@ -123,7 +220,7 @@ function parseQuestionText(text, examId) {
 
   for (const line of lines) {
     const questionMatch = line.match(/^\d+[\).]\s*(.+)$/);
-    const optionMatch = line.match(/^([A-E])[\).]\s*(.+)$/i);
+    const optionMatch = line.match(/^([A-E])[\).]\s*(.*)$/i);
     const keyMatch = line.match(/^(kunci|jawaban|answer)\s*[:=]?\s*([A-E])\b/i);
     const scoreMatch = line.match(/^(bobot|skor|score)\s*[:=]?\s*(\d+(?:[.,]\d+)?)/i);
 
@@ -131,17 +228,27 @@ function parseQuestionText(text, examId) {
       finishCurrent();
       current = {
         examId,
+        type: "multiple_choice",
         body: questionMatch[1],
         options: [],
         answerKey: "",
+        correctAnswers: [],
         score: 1
       };
+      activeOptionKey = "";
     } else if (current && optionMatch) {
-      current.options.push({ key: optionMatch[1].toUpperCase(), text: optionMatch[2] });
+      activeOptionKey = optionMatch[1].toUpperCase();
+      current.options.push({ key: activeOptionKey, text: optionMatch[2] || "" });
     } else if (current && keyMatch) {
       current.answerKey = keyMatch[2].toUpperCase();
+      current.correctAnswers = [current.answerKey];
+      activeOptionKey = "";
     } else if (current && scoreMatch) {
       current.score = Number(scoreMatch[2].replace(",", ".")) || 1;
+      activeOptionKey = "";
+    } else if (current && activeOptionKey) {
+      const option = current.options.find((item) => item.key === activeOptionKey);
+      if (option) option.text = `${option.text}${option.text ? "\n" : ""}${line}`;
     } else if (current) {
       current.body = `${current.body}\n${line}`;
     }
@@ -151,15 +258,308 @@ function parseQuestionText(text, examId) {
   return questions;
 }
 
+function readQuestionCell(row, keys) {
+  for (const key of keys) {
+    const value = row[key];
+    if (value !== undefined && value !== null && String(value).trim()) return String(value).trim();
+  }
+  return "";
+}
+
+function parseQuestionRows(rows, examId) {
+  return rows.map((row) => {
+    const typeText = readQuestionCell(row, ["tipe", "Tipe", "type", "Type", "jenis", "Jenis"]);
+    const answerRaw = readQuestionCell(row, ["kunci", "Kunci", "kunci_jawaban", "Kunci Jawaban", "answerKey", "answer_key", "jawaban"]);
+    const correctAnswers = splitAnswerKeys(answerRaw);
+    const type = questionTypeFromText(typeText || (correctAnswers.length > 1 ? "checklist" : "pg"));
+    const body = readQuestionCell(row, ["soal", "Soal", "pertanyaan", "Pertanyaan", "question", "Question", "body"]);
+    const scoreText = readQuestionCell(row, ["bobot", "Bobot", "skor", "Skor", "score", "Score"]);
+    const options = OPTION_KEYS.map((key) => ({
+      key,
+      text: readQuestionCell(row, [
+        `opsi_${key.toLowerCase()}`,
+        `opsi${key}`,
+        `Opsi ${key}`,
+        `Opsi_${key}`,
+        `option_${key.toLowerCase()}`,
+        `option${key}`,
+        key
+      ])
+    })).filter((option) => option.text);
+    return {
+      examId,
+      type,
+      body,
+      options,
+      answerKey: correctAnswers[0] || "",
+      correctAnswers,
+      score: Number(String(scoreText || "1").replace(",", ".")) || 1
+    };
+  }).filter((question) => question.body && question.options.length >= 2 && (question.type === "multiple_response" ? question.correctAnswers.length : question.answerKey));
+}
+
 function formatElectiveSubjects(student) {
   return Array.isArray(student.electiveSubjects) ? student.electiveSubjects : [];
 }
 
+function formatResultStatus(status) {
+  const labels = {
+    not_started: "Belum Mengerjakan",
+    in_progress: "Sedang Mengerjakan",
+    submitted: "Selesai"
+  };
+  return labels[status] || status || "-";
+}
+
+function formatScheduleStatus(status) {
+  const labels = {
+    draft: "Belum dipublish",
+    closed: "Ditutup admin",
+    upcoming: "Belum dibuka",
+    active: "Sedang berlangsung",
+    ended: "Waktu berakhir",
+    invalid_schedule: "Jadwal belum lengkap"
+  };
+  return labels[status] || status || "-";
+}
+
+function scheduleStatusClass(status) {
+  if (status === "active") return "status-pill selected";
+  if (status === "upcoming") return "status-pill revision";
+  return "status-pill";
+}
+
+function formatRemainingTime(totalMs) {
+  const totalSeconds = Math.max(0, Math.floor(Number(totalMs || 0) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function resultStatusClass(status) {
+  if (status === "submitted") return "status-pill selected";
+  if (status === "in_progress") return "status-pill revision";
+  return "status-pill";
+}
+
+function csvCell(value) {
+  return `"${String(value ?? "").replaceAll("\"", "\"\"")}"`;
+}
+
+const OPTION_KEYS = ["A", "B", "C", "D", "E"];
+const QUESTION_TYPES = [
+  { value: "multiple_choice", label: "Pilihan Ganda" },
+  { value: "multiple_response", label: "Pilihan Ganda Kompleks / Checklist" },
+  { value: "true_false", label: "Benar / Salah Pernyataan" },
+  { value: "matching", label: "Menjodohkan" },
+  { value: "short_answer", label: "Isian Singkat" },
+  { value: "essay", label: "Uraian / Isian Panjang" }
+];
+
+const DEFAULT_ANSWER_RULES = { caseSensitive: false, ignorePunctuation: true, trimSpaces: true };
+
+function createDefaultQuestion(examId = "") {
+  return {
+    examId,
+    type: "multiple_choice",
+    body: "",
+    image: "",
+    answerKey: "A",
+    correctAnswers: [],
+    score: 1,
+    options: OPTION_KEYS.map((key) => ({ key, text: "", image: "" })),
+    statements: [
+      { id: "st-1", text: "", image: "", answer: "true" },
+      { id: "st-2", text: "", image: "", answer: "false" }
+    ],
+    pairs: [
+      { id: "pair-1", left: "", right: "", leftImage: "", rightImage: "" },
+      { id: "pair-2", left: "", right: "", leftImage: "", rightImage: "" }
+    ],
+    shortAnswers: [""],
+    answerRules: { ...DEFAULT_ANSWER_RULES }
+  };
+}
+
+function normalizeQuestionForForm(question, fallbackExamId = "") {
+  return {
+    ...createDefaultQuestion(fallbackExamId),
+    ...question,
+    examId: question.examId || fallbackExamId,
+    type: question.type || "multiple_choice",
+    image: question.image || "",
+    options: Array.isArray(question.options) && question.options.length
+      ? question.options.map((option) => ({ key: option.key, text: option.text || "", image: option.image || "" }))
+      : createDefaultQuestion(fallbackExamId).options,
+    correctAnswers: Array.isArray(question.correctAnswers) ? question.correctAnswers : [],
+    statements: Array.isArray(question.statements) && question.statements.length ? question.statements : createDefaultQuestion(fallbackExamId).statements,
+    pairs: Array.isArray(question.pairs) && question.pairs.length ? question.pairs : createDefaultQuestion(fallbackExamId).pairs,
+    shortAnswers: Array.isArray(question.shortAnswers) && question.shortAnswers.length ? question.shortAnswers : [""],
+    answerRules: { ...DEFAULT_ANSWER_RULES, ...(question.answerRules || {}) }
+  };
+}
+
+function cleanQuestionForSubmit(form) {
+  const cleanOptions = (form.options || []).filter((option) => option.text.trim() || option.image);
+  const payload = {
+    ...form,
+    score: Number(String(form.score || 1).replace(",", ".")),
+    options: cleanOptions,
+    correctAnswers: form.correctAnswers || [],
+    statements: (form.statements || []).filter((statement) => statement.text.trim() || statement.image),
+    pairs: (form.pairs || []).filter((pair) => (pair.left.trim() || pair.leftImage) && (pair.right.trim() || pair.rightImage)),
+    shortAnswers: (form.shortAnswers || []).map((item) => item.trim()).filter(Boolean),
+    answerRules: { ...DEFAULT_ANSWER_RULES, ...(form.answerRules || {}) }
+  };
+  if (!payload.options.some((option) => option.key === payload.answerKey)) {
+    payload.answerKey = payload.options[0]?.key || "A";
+  }
+  payload.correctAnswers = payload.correctAnswers.filter((key) => payload.options.some((option) => option.key === key));
+  return payload;
+}
+
+function questionTypeLabel(type) {
+  return QUESTION_TYPES.find((item) => item.value === type)?.label || "Pilihan Ganda";
+}
+
+async function compressImageFile(file, maxBytes = 500 * 1024, maxWidth = 1200) {
+  if (!file.type.startsWith("image/")) throw new Error("File harus berupa gambar.");
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+  const image = await new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Gambar tidak dapat dibaca."));
+    img.src = dataUrl;
+  });
+
+  let width = Math.min(image.width, maxWidth);
+  let height = Math.round(image.height * (width / image.width));
+  let quality = 0.86;
+  let bestBlob = null;
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+
+  for (let step = 0; step < 18; step += 1) {
+    canvas.width = Math.max(320, Math.round(width));
+    canvas.height = Math.max(180, Math.round(height));
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/webp", quality));
+    if (blob) bestBlob = blob;
+    if (blob && blob.size <= maxBytes) break;
+    if (quality > 0.48) quality -= 0.08;
+    else {
+      width *= 0.86;
+      height *= 0.86;
+      quality = 0.72;
+    }
+  }
+
+  if (!bestBlob) throw new Error("Gambar gagal dikompres.");
+  if (bestBlob.size > maxBytes) throw new Error("Gambar masih terlalu besar setelah dikompres. Coba gunakan gambar dengan resolusi lebih kecil.");
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve({ dataUrl: reader.result, size: bestBlob.size, width: canvas.width, height: canvas.height });
+    reader.onerror = reject;
+    reader.readAsDataURL(bestBlob);
+  });
+}
+
+function timeToMinutes(value) {
+  if (!value) return null;
+  const [hours, minutes] = value.split(":").map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
+}
+
+function minutesToTime(totalMinutes) {
+  const minutesInDay = 24 * 60;
+  const safeMinutes = ((totalMinutes % minutesInDay) + minutesInDay) % minutesInDay;
+  const hours = Math.floor(safeMinutes / 60);
+  const minutes = safeMinutes % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function deriveEndTime(startTime, durationMinutes) {
+  const start = timeToMinutes(startTime);
+  const duration = Number(durationMinutes);
+  if (start === null || !Number.isFinite(duration)) return "";
+  return minutesToTime(start + duration);
+}
+
+function deriveDurationMinutes(startTime, endTime, fallback = 90) {
+  const start = timeToMinutes(startTime);
+  const end = timeToMinutes(endTime);
+  if (start === null || end === null) return Number(fallback) || 90;
+  const diff = end >= start ? end - start : end + 24 * 60 - start;
+  return diff || Number(fallback) || 90;
+}
+
+function formatExamTimeRange(exam) {
+  const endTime = exam.endTime || deriveEndTime(exam.startTime, exam.durationMinutes);
+  return endTime ? `${exam.startTime} - ${endTime}` : exam.startTime;
+}
+
+function localDateKey(date = new Date()) {
+  return date.toLocaleDateString("en-CA", { timeZone: "Asia/Jakarta" });
+}
+
+function examDateTimeMs(date, time) {
+  if (!date || !time) return null;
+  const timestamp = new Date(`${date}T${time}:00`).getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function getExamScheduleMeta(exam, now = new Date()) {
+  const startMs = examDateTimeMs(exam.date, exam.startTime);
+  const endTime = exam.endTime || deriveEndTime(exam.startTime, exam.durationMinutes);
+  const endMs = examDateTimeMs(exam.date, endTime);
+  let status = exam.status === "published" ? "active" : exam.status || "draft";
+  if (exam.status === "draft") status = "draft";
+  else if (exam.status === "closed") status = "closed";
+  else if (!startMs || !endMs) status = "invalid_schedule";
+  else if (now.getTime() < startMs) status = "upcoming";
+  else if (now.getTime() >= endMs) status = "ended";
+  return {
+    status,
+    startMs,
+    endMs,
+    endTime,
+    remainingMs: status === "active" && endMs ? Math.max(0, endMs - now.getTime()) : 0
+  };
+}
+
+function formatDateTime(value) {
+  return value ? new Date(value).toLocaleString("id-ID") : "-";
+}
+
+const REVIEW_STATUS_LABELS = {
+  unreviewed: "Belum Dicek",
+  reviewed: "Sudah Dicek",
+  needs_revision: "Perlu Revisi"
+};
+
+function formatReviewStatus(status) {
+  return REVIEW_STATUS_LABELS[status] || REVIEW_STATUS_LABELS.unreviewed;
+}
+
+function reviewStatusClass(status) {
+  if (status === "reviewed") return "status-pill selected";
+  if (status === "needs_revision") return "status-pill revision";
+  return "status-pill";
+}
+
 function downloadStudentTemplate() {
-  const headers = ["nis", "nisn", "name", "gender", "className", "username", "password", "room", "session", "Mapel Pilihan 1", "Mapel Pilihan 2", "Mapel Pilihan 3", "Mapel Pilihan 4", "Mapel Pilihan 5"];
+  const headers = ["nis", "nisn", "name", "gender", "className", "username", "password", "Mapel Pilihan 1", "Mapel Pilihan 2", "Mapel Pilihan 3", "Mapel Pilihan 4", "Mapel Pilihan 5"];
   const rows = [
-    ["10676", "0062721508", "AGISFA ROCHMANY ALFATH", "L", "XII.2", "10676", "10676", "Lab 1", "Sesi 1", "Informatika 2", "Sejarah TL 2", "", "", ""],
-    ["10690", "0061606839", "AMELIA RASHEEDAH", "P", "XII.3", "10690", "10690", "Lab 1", "Sesi 1", "Sejarah TL 1", "Sosiologi 1", "", "", ""]
+    ["10676", "0062721508", "AGISFA ROCHMANY ALFATH", "L", "XII.2", "10676", "", "Informatika 2", "Sejarah TL 2", "", "", ""],
+    ["10690", "0061606839", "AMELIA RASHEEDAH", "P", "XII.3", "10690", "", "Sejarah TL 1", "Sosiologi 1", "", "", ""]
   ];
   const csv = [headers, ...rows].map((row) => row.map((cell) => `"${String(cell).replaceAll("\"", "\"\"")}"`).join(",")).join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -167,6 +567,155 @@ function downloadStudentTemplate() {
   const link = document.createElement("a");
   link.href = url;
   link.download = "contoh-import-siswa-cbt.csv";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadTeacherTemplate() {
+  const headers = ["name", "username", "password", "Mapel 1", "Mapel 2", "Mapel 3", "Mapel 4", "Mapel 5"];
+  const rows = [
+    ["Ibu Zuyun", "zuyun", "zuyun123", "Informatika", "Matematika", "", "", ""],
+    ["Bapak Rojak", "rojak", "rojak123", "Matematika TL", "Bahasa Indonesia", "", "", ""],
+    ["Bapak Sidiq", "sidiq", "sidiq123", "Informatika", "Bahasa Inggris", "Agama", "", ""],
+    ["Ibu Vidia", "vidia", "vidia123", "Biologi", "", "", "", ""]
+  ];
+  const csv = [headers, ...rows].map((row) => row.map((cell) => `"${String(cell).replaceAll("\"", "\"\"")}"`).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "contoh-import-guru-cbt.csv";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function escapeXml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;");
+}
+
+function crc32(bytes) {
+  let crc = -1;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+  }
+  return (crc ^ -1) >>> 0;
+}
+
+function zipBytes(files) {
+  const encoder = new TextEncoder();
+  const chunks = [];
+  const central = [];
+  let offset = 0;
+
+  const u16 = (value) => new Uint8Array([value & 255, (value >>> 8) & 255]);
+  const u32 = (value) => new Uint8Array([value & 255, (value >>> 8) & 255, (value >>> 16) & 255, (value >>> 24) & 255]);
+  const push = (target, ...parts) => {
+    for (const part of parts) target.push(part);
+  };
+  const lengthOf = (parts) => parts.reduce((sum, part) => sum + part.length, 0);
+
+  for (const file of files) {
+    const name = encoder.encode(file.name);
+    const data = encoder.encode(file.content);
+    const crc = crc32(data);
+    const localOffset = offset;
+    const localHeader = [
+      u32(0x04034b50), u16(20), u16(0), u16(0), u16(0), u16(0),
+      u32(crc), u32(data.length), u32(data.length), u16(name.length), u16(0), name, data
+    ];
+    push(chunks, ...localHeader);
+    offset += lengthOf(localHeader);
+    push(central,
+      u32(0x02014b50), u16(20), u16(20), u16(0), u16(0), u16(0), u16(0),
+      u32(crc), u32(data.length), u32(data.length), u16(name.length), u16(0), u16(0),
+      u16(0), u16(0), u32(0), u32(localOffset), name
+    );
+  }
+
+  const centralSize = lengthOf(central);
+  const end = [
+    u32(0x06054b50), u16(0), u16(0), u16(files.length), u16(files.length),
+    u32(centralSize), u32(offset), u16(0)
+  ];
+  return new Blob([...chunks, ...central, ...end], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+}
+
+function downloadQuestionWordTemplate() {
+  const paragraphs = [
+    "TEMPLATE IMPORT SOAL CBT SMAN 94",
+    "",
+    "PETUNJUK",
+    "1. Gunakan [TIPE: PG] untuk pilihan ganda biasa.",
+    "2. Gunakan [TIPE: CHECKLIST] untuk pilihan ganda kompleks yang jawabannya lebih dari satu.",
+    "3. Kunci checklist ditulis dengan koma, contoh: Kunci: A, C, E.",
+    "4. Bobot boleh menggunakan koma/desimal, contoh: Bobot: 2.5.",
+    "5. Untuk tahap ini gambar bisa ditambahkan setelah import lewat editor soal aplikasi.",
+    "",
+    "[TIPE: PG]",
+    "Soal:",
+    "Apa yang dimaksud dengan literasi digital?",
+    "",
+    "A. Kemampuan membaca dan menulis di perangkat digital.",
+    "B. Kemampuan menggunakan internet untuk belanja online.",
+    "C. Kemampuan memahami dan menggunakan informasi digital secara efektif.",
+    "D. Kemampuan mengunduh aplikasi dari internet.",
+    "E. Kemampuan bermain game online.",
+    "",
+    "Kunci: C",
+    "Bobot: 2.5",
+    "",
+    "[TIPE: CHECKLIST]",
+    "Soal:",
+    "Manakah pernyataan yang benar tentang keamanan digital?",
+    "",
+    "A. Password sebaiknya dibuat berbeda untuk setiap akun.",
+    "B. OTP boleh dibagikan kepada teman dekat.",
+    "C. Verifikasi dua langkah dapat meningkatkan keamanan akun.",
+    "D. Link mencurigakan sebaiknya langsung dibuka tanpa dicek.",
+    "E. Data pribadi sebaiknya tidak disebarkan sembarangan.",
+    "",
+    "Kunci: A, C, E",
+    "Bobot: 3"
+  ];
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    ${paragraphs.map((text) => `<w:p><w:r><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r></w:p>`).join("\n    ")}
+    <w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr>
+  </w:body>
+</w:document>`;
+  const blob = zipBytes([
+    { name: "[Content_Types].xml", content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>` },
+    { name: "_rels/.rels", content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>` },
+    { name: "word/document.xml", content: documentXml }
+  ]);
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "template-import-soal-cbt.docx";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadQuestionTemplate() {
+  const headers = ["tipe", "soal", "opsi_a", "opsi_b", "opsi_c", "opsi_d", "opsi_e", "kunci", "bobot"];
+  const rows = [
+    ["PG", "Apa yang dimaksud dengan literasi digital?", "Kemampuan membaca dan menulis di perangkat digital.", "Kemampuan belanja online.", "Kemampuan memahami dan menggunakan informasi digital secara efektif.", "Kemampuan mengunduh aplikasi.", "Kemampuan bermain game online.", "C", "2.5"],
+    ["CHECKLIST", "Manakah pernyataan yang benar tentang keamanan digital?", "Password berbeda untuk setiap akun.", "OTP boleh dibagikan.", "Verifikasi dua langkah meningkatkan keamanan.", "Link mencurigakan langsung dibuka.", "Data pribadi tidak disebar sembarangan.", "A,C,E", "3"]
+  ];
+  const csv = [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "contoh-import-soal-cbt.csv";
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -198,21 +747,25 @@ function Modal({ title, icon: Icon, children, onClose, wide = false }) {
   );
 }
 
-function PaginationControls({ page, pageSize, total, onPageChange, onPageSizeChange }) {
+function PaginationControls({ page, pageSize, total, onPageChange, onPageSizeChange, pageSizeOptions = [25, 50, 75, 100], itemLabel = "data", compact = false }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const start = total ? (Math.min(page, totalPages) - 1) * pageSize + 1 : 0;
   const end = Math.min(Math.min(page, totalPages) * pageSize, total);
 
   return (
-    <div className="pagination-bar">
-      <span>{start}-{end} dari {total} data</span>
+    <div className={`pagination-bar${compact ? " pagination-compact" : ""}`}>
+      <span>{start}-{end} dari {total} {itemLabel}</span>
       <div className="pagination-actions">
         <select value={pageSize} onChange={(event) => onPageSizeChange(Number(event.target.value))}>
-          {[25, 50, 100].map((size) => <option value={size} key={size}>{size}/halaman</option>)}
+          {pageSizeOptions.map((size) => <option value={size} key={size}>{compact ? `${size} / Hal` : `${size}/halaman`}</option>)}
         </select>
-        <button type="button" className="ghost-button" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>Sebelumnya</button>
+        <button type="button" className="ghost-button page-symbol-button" title="Halaman sebelumnya" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
+          {compact ? "<<" : "Sebelumnya"}
+        </button>
         <code>{Math.min(page, totalPages)} / {totalPages}</code>
-        <button type="button" className="ghost-button" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}>Berikutnya</button>
+        <button type="button" className="ghost-button page-symbol-button" title="Halaman berikutnya" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}>
+          {compact ? ">>" : "Berikutnya"}
+        </button>
       </div>
     </div>
   );
@@ -286,40 +839,312 @@ function Login({ onLogin }) {
   );
 }
 
-function AdminDashboard({ summary, students, exams, violations }) {
+function AdminDashboard({ summary, students, exams, questions, attempts, results, violations }) {
+  const now = new Date();
+  const today = localDateKey(now);
+  const questionsByExam = new Map();
+  const attemptsByExam = new Map();
+  for (const question of questions) {
+    questionsByExam.set(question.examId, (questionsByExam.get(question.examId) || 0) + 1);
+  }
+  for (const attempt of attempts) {
+    attemptsByExam.set(attempt.examId, (attemptsByExam.get(attempt.examId) || 0) + 1);
+  }
+  const examRows = exams.map((exam) => ({
+    ...exam,
+    questionCount: questionsByExam.get(exam.id) || 0,
+    participantCount: attemptsByExam.get(exam.id) || 0,
+    schedule: getExamScheduleMeta(exam, now)
+  }));
+  const todayExams = examRows
+    .filter((exam) => exam.date === today)
+    .sort((a, b) => (a.startTime || "").localeCompare(b.startTime || ""));
+  const nextExams = examRows
+    .filter((exam) => exam.schedule.startMs && exam.schedule.startMs >= now.getTime())
+    .sort((a, b) => a.schedule.startMs - b.schedule.startMs)
+    .slice(0, 6);
+  const submittedResults = results.filter((item) => item.status === "submitted");
+  const averageScore = submittedResults.length
+    ? Math.round(submittedResults.reduce((total, item) => total + Number(item.score?.percent || 0), 0) / submittedResults.length)
+    : "-";
+  const inProgress = attempts.filter((attempt) => attempt.status === "in_progress").length;
+  const staleActive = attempts.filter((attempt) => {
+    if (attempt.status !== "in_progress" || !attempt.updatedAt) return false;
+    return now.getTime() - new Date(attempt.updatedAt).getTime() > 5 * 60 * 1000;
+  }).length;
+  const alerts = [
+    ...examRows.filter((exam) => exam.status === "published" && !exam.questionCount).map((exam) => ({
+      level: "danger",
+      title: `${exam.code} belum punya soal`,
+      message: "Tambahkan soal atau tutup publish sebelum peserta masuk."
+    })),
+    ...examRows.filter((exam) => exam.status === "published" && !exam.participantCount).map((exam) => ({
+      level: "warning",
+      title: `${exam.code} belum punya peserta`,
+      message: "Pilih peserta ujian agar kartu dan portal siswa sesuai."
+    })),
+    ...examRows.filter((exam) => exam.status === "published" && exam.reviewStatus !== "reviewed").map((exam) => ({
+      level: "warning",
+      title: `${exam.code} belum dicek admin`,
+      message: "Review soal sebaiknya selesai sebelum jadwal ujian."
+    })),
+    ...(staleActive ? [{
+      level: "warning",
+      title: `${staleActive} peserta aktif tidak mengirim update`,
+      message: "Cek koneksi atau perangkat peserta pada halaman Monitoring."
+    }] : [])
+  ].slice(0, 8);
+
   return (
-    <div className="content-grid">
+    <div className="page-stack">
       <section className="span-full stat-grid">
         <StatCard icon={Users} label="Siswa" value={summary.students ?? 0} />
         <StatCard icon={UserRound} label="Guru" value={summary.teachers ?? 0} />
-        <StatCard icon={ClipboardList} label="Ujian" value={summary.exams ?? 0} />
-        <StatCard icon={AlertTriangle} label="Log Pelanggaran" value={summary.violations ?? 0} />
+        <StatCard icon={PlayCircle} label="Sedang Ujian" value={inProgress} />
+        <StatCard icon={CheckCircle2} label="Rata-rata Nilai" value={averageScore} />
+      </section>
+      <div className="content-grid dashboard-grid">
+        <section className="panel span-wide">
+          <PanelTitle icon={CalendarDays} title="Jadwal Hari Ini" />
+          <div className="timeline-list">
+            {todayExams.length ? todayExams.map((exam) => (
+              <article className="timeline-item" key={exam.id}>
+                <div>
+                  <strong>{exam.code} - {exam.subject}</strong>
+                  <span>{formatExamTimeRange(exam)} | {exam.durationMinutes} menit | {exam.participantCount} peserta</span>
+                </div>
+                <span className={scheduleStatusClass(exam.schedule.status)}>{formatScheduleStatus(exam.schedule.status)}</span>
+              </article>
+            )) : <div className="empty-state"><strong>Tidak ada jadwal hari ini.</strong><p>Jadwal berikutnya tetap bisa dilihat di daftar bawah.</p></div>}
+          </div>
+        </section>
+        <section className="panel">
+          <PanelTitle icon={AlertTriangle} title="Perlu Perhatian" />
+          <div className="alert-list">
+            {alerts.length ? alerts.map((alert, index) => (
+              <article className={`alert-item ${alert.level}`} key={`${alert.title}-${index}`}>
+                <strong>{alert.title}</strong>
+                <span>{alert.message}</span>
+              </article>
+            )) : <div className="empty-state compact-empty"><strong>Semua terlihat aman.</strong><p>Tidak ada ujian publish yang kosong soal/peserta.</p></div>}
+          </div>
+        </section>
+      </div>
+      <section className="panel">
+        <div className="dashboard-section-head">
+          <PanelTitle icon={ClipboardList} title="Ringkasan Ujian" />
+          <div className="dashboard-metrics">
+            <code>{examRows.length} ujian</code>
+            <code>{violations.length} log pelanggaran</code>
+          </div>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Kode</th>
+                <th>Mata Pelajaran</th>
+                <th>Jadwal</th>
+                <th>Soal</th>
+                <th>Peserta</th>
+                <th>Status Jadwal</th>
+                <th>Review Soal</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(nextExams.length ? nextExams : examRows.slice(0, 6)).map((exam) => (
+                <tr key={exam.id}>
+                  <td><strong>{exam.code}</strong></td>
+                  <td>{exam.subject}</td>
+                  <td>{exam.date} | {formatExamTimeRange(exam)}</td>
+                  <td>{exam.questionCount}</td>
+                  <td>{exam.participantCount}</td>
+                  <td><span className={scheduleStatusClass(exam.schedule.status)}>{formatScheduleStatus(exam.schedule.status)}</span></td>
+                  <td><span className={reviewStatusClass(exam.reviewStatus)}>{formatReviewStatus(exam.reviewStatus)}</span></td>
+                </tr>
+              ))}
+              {examRows.length ? null : <tr><td colSpan="7">Belum ada ujian.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function MonitoringDashboard({ attempts, students, exams, violations }) {
+  const [examFilter, setExamFilter] = useState("");
+  const [classFilter, setClassFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const now = new Date();
+
+  const studentById = useMemo(() => new Map(students.map((student) => [student.id, student])), [students]);
+  const examById = useMemo(() => new Map(exams.map((exam) => [exam.id, exam])), [exams]);
+  const classOptions = [...new Set(students.map((student) => student.className).filter(Boolean))].sort((a, b) => a.localeCompare(b, "id"));
+  const violationCountByAttempt = useMemo(() => {
+    const map = new Map();
+    for (const violation of violations) {
+      const key = `${violation.examId}-${violation.studentId}`;
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+    return map;
+  }, [violations]);
+
+  const rows = attempts.map((attempt) => {
+    const student = studentById.get(attempt.studentId) || {};
+    const exam = examById.get(attempt.examId) || {};
+    const schedule = getExamScheduleMeta(exam, now);
+    const lastSeenMs = attempt.updatedAt ? new Date(attempt.updatedAt).getTime() : null;
+    const isStale = attempt.status === "in_progress" && lastSeenMs && now.getTime() - lastSeenMs > 5 * 60 * 1000;
+    return {
+      ...attempt,
+      nis: student.nis || "",
+      studentName: attempt.studentName || student.name || "-",
+      className: attempt.className || student.className || "-",
+      electiveSubjects: formatElectiveSubjects(student),
+      examCode: attempt.examCode || exam.code || "-",
+      subject: attempt.subject || exam.subject || "-",
+      examDate: exam.date || "-",
+      examTime: exam.id ? formatExamTimeRange(exam) : "-",
+      schedule,
+      violationCount: violationCountByAttempt.get(`${attempt.examId}-${attempt.studentId}`) || 0,
+      isStale
+    };
+  });
+
+  const filteredRows = rows.filter((item) => {
+    const matchesExam = examFilter ? item.examId === examFilter : true;
+    const matchesClass = classFilter ? item.className === classFilter : true;
+    const matchesStatus = statusFilter === "stale" ? item.isStale : statusFilter ? item.status === statusFilter : true;
+    const haystack = [
+      item.nis,
+      item.studentName,
+      item.className,
+      item.examCode,
+      item.subject,
+      item.electiveSubjects.join(" ")
+    ].join(" ").toLowerCase();
+    return matchesExam && matchesClass && matchesStatus && haystack.includes(query.toLowerCase());
+  });
+
+  const paged = getPageItems(filteredRows, page, pageSize);
+
+  function changeFilter(setter, value) {
+    setter(value);
+    setPage(1);
+  }
+
+  return (
+    <div className="page-stack">
+      <section className="stat-grid">
+        <StatCard icon={Users} label="Peserta Tampil" value={filteredRows.length} />
+        <StatCard icon={PlayCircle} label="Sedang Mengerjakan" value={filteredRows.filter((item) => item.status === "in_progress").length} />
+        <StatCard icon={CheckCircle2} label="Selesai" value={filteredRows.filter((item) => item.status === "submitted").length} />
+        <StatCard icon={AlertTriangle} label="Perlu Dicek" value={filteredRows.filter((item) => item.isStale || item.violationCount).length} />
       </section>
       <section className="panel">
-        <PanelTitle icon={CalendarDays} title="Jadwal Ujian" />
-        <DataTable
-          headers={["Kode", "Mapel", "Tanggal", "Durasi", "Status"]}
-          rows={exams.map((exam) => [exam.code, exam.subject, `${exam.date} ${exam.startTime}`, `${exam.durationMinutes} menit`, exam.status])}
+        <div className="result-header">
+          <PanelTitle icon={MonitorSmartphone} title="Monitoring Peserta Ujian" />
+          <span className="muted">Data diperbarui saat halaman direfresh atau admin membuka menu ini.</span>
+        </div>
+        <div className="result-controls monitoring-controls">
+          <label className="field-control">
+            <span>Ujian</span>
+            <select value={examFilter} onChange={(event) => changeFilter(setExamFilter, event.target.value)}>
+              <option value="">Semua Ujian</option>
+              {exams.map((exam) => <option value={exam.id} key={exam.id}>{exam.code} - {exam.subject}</option>)}
+            </select>
+          </label>
+          <label className="field-control">
+            <span>Kelas</span>
+            <select value={classFilter} onChange={(event) => changeFilter(setClassFilter, event.target.value)}>
+              <option value="">Semua Kelas</option>
+              {classOptions.map((className) => <option value={className} key={className}>{className}</option>)}
+            </select>
+          </label>
+          <label className="field-control">
+            <span>Status</span>
+            <select value={statusFilter} onChange={(event) => changeFilter(setStatusFilter, event.target.value)}>
+              <option value="">Semua Status</option>
+              <option value="not_started">Belum Mengerjakan</option>
+              <option value="in_progress">Sedang Mengerjakan</option>
+              <option value="submitted">Selesai</option>
+              <option value="stale">Perlu Dicek</option>
+            </select>
+          </label>
+          <label className="field-control result-search-control">
+            <span>Cari Peserta</span>
+            <span className="search-box">
+              <Search size={16} />
+              <input value={query} placeholder="Cari nama, NIS, ujian..." onChange={(event) => changeFilter(setQuery, event.target.value)} />
+            </span>
+          </label>
+        </div>
+        <PaginationControls
+          page={paged.currentPage}
+          pageSize={pageSize}
+          total={filteredRows.length}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          pageSizeOptions={[25, 50, 75, 100]}
+          itemLabel="peserta"
+        />
+        <div className="table-wrap">
+          <table className="monitoring-table">
+            <thead>
+              <tr>
+                <th>Peserta</th>
+                <th>Kelas</th>
+                <th>Ujian</th>
+                <th>Jadwal</th>
+                <th>Status</th>
+                <th>Mulai</th>
+                <th>Terakhir Aktif</th>
+                <th>Sisa Waktu</th>
+                <th>Pelanggaran</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paged.items.map((item) => (
+                <tr key={item.id}>
+                  <td><strong>{item.studentName}</strong><br /><code>{item.nis || item.studentId}</code></td>
+                  <td>{item.className}</td>
+                  <td><strong>{item.examCode}</strong><br /><span>{item.subject}</span></td>
+                  <td>{item.examDate}<br /><span>{item.examTime}</span></td>
+                  <td>
+                    <span className={item.isStale ? "status-pill revision" : resultStatusClass(item.status)}>
+                      {item.isStale ? "Perlu Dicek" : formatResultStatus(item.status)}
+                    </span>
+                  </td>
+                  <td>{formatDateTime(item.startedAt)}</td>
+                  <td>{formatDateTime(item.updatedAt)}</td>
+                  <td>{item.status === "in_progress" && item.schedule.status === "active" ? formatRemainingTime(item.schedule.remainingMs) : "-"}</td>
+                  <td>{item.violationCount ? <span className="status-pill revision">{item.violationCount} log</span> : "-"}</td>
+                </tr>
+              ))}
+              {paged.items.length ? null : <tr><td colSpan="9">Belum ada peserta sesuai filter.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <PaginationControls
+          page={paged.currentPage}
+          pageSize={pageSize}
+          total={filteredRows.length}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          pageSizeOptions={[25, 50, 75, 100]}
+          itemLabel="peserta"
         />
       </section>
       <section className="panel">
-        <PanelTitle icon={CreditCard} title="Kartu Peserta" />
-        <div className="card-preview-list">
-          {students.slice(0, 3).map((student) => (
-            <div className="participant-card" key={student.id}>
-              <strong>{student.name}</strong>
-              <span>{student.className} | {student.room} | {student.session}</span>
-              <code>{student.username} / {student.password}</code>
-            </div>
-          ))}
-        </div>
-      </section>
-      <section className="panel span-full">
-        <PanelTitle icon={MonitorSmartphone} title="Monitoring Pelanggaran" />
+        <PanelTitle icon={AlertTriangle} title="Log Pelanggaran Terbaru" />
         <DataTable
           headers={["Waktu", "Siswa", "Ujian", "Level", "Catatan"]}
-          rows={violations.map((item) => [
-            new Date(item.createdAt).toLocaleString("id-ID"),
+          rows={violations.slice(0, 12).map((item) => [
+            formatDateTime(item.createdAt),
             item.studentName,
             item.examCode,
             item.level,
@@ -331,8 +1156,169 @@ function AdminDashboard({ summary, students, exams, violations }) {
   );
 }
 
+function TeacherManager({ teachers, onChanged, onExit }) {
+  const emptyForm = { name: "", username: "", password: "", mapel1: "", mapel2: "", mapel3: "", mapel4: "", mapel5: "" };
+  const [form, setForm] = useState(emptyForm);
+  const [editingId, setEditingId] = useState("");
+  const [notice, setNotice] = useState("");
+  const [modalOpen, setModalOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+
+  function reset() {
+    setEditingId("");
+    setForm(emptyForm);
+  }
+
+  function edit(teacher) {
+    setEditingId(teacher.id);
+    const subjects = teacher.subjects || [];
+    setForm({
+      name: teacher.name,
+      username: teacher.username,
+      password: "",
+      mapel1: subjects[0] || "",
+      mapel2: subjects[1] || "",
+      mapel3: subjects[2] || "",
+      mapel4: subjects[3] || "",
+      mapel5: subjects[4] || ""
+    });
+    setNotice("");
+    setModalOpen(true);
+  }
+
+  async function submit(event) {
+    event.preventDefault();
+    const payload = {
+      name: form.name,
+      username: form.username,
+      password: form.password,
+      subjects: [form.mapel1, form.mapel2, form.mapel3, form.mapel4, form.mapel5].map((item) => item.trim()).filter(Boolean)
+    };
+    if (editingId && !payload.password) delete payload.password;
+    if (editingId) {
+      await api(`/teachers/${editingId}`, { method: "PUT", body: JSON.stringify(payload) });
+      setNotice("Data guru berhasil diperbarui.");
+    } else {
+      await api("/teachers", { method: "POST", body: JSON.stringify(payload) });
+      setNotice("Guru baru berhasil ditambahkan.");
+    }
+    reset();
+    setModalOpen(false);
+    onChanged();
+  }
+
+  async function remove(teacher) {
+    const ok = window.confirm(`Hapus guru ${teacher.name}?`);
+    if (!ok) return;
+    await api(`/teachers/${teacher.id}`, { method: "DELETE" });
+    setNotice("Data guru berhasil dihapus.");
+    onChanged();
+  }
+
+  async function importFile(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const rows = file.name.toLowerCase().endsWith(".csv")
+      ? parseCsv(await file.text())
+      : rowsToObjects(await readXlsxFile(file));
+    const result = await api("/teachers/bulk", { method: "POST", body: JSON.stringify({ teachers: rows }) });
+    setNotice(`Import guru selesai: ${result.created} baru, ${result.updated} diperbarui, ${result.skipped} dilewati.`);
+    event.target.value = "";
+    setBulkOpen(false);
+    onChanged();
+  }
+
+  return (
+    <div className="page-stack">
+      <section className="panel">
+        <div className="panel-toolbar">
+          <div className="toolbar-actions">
+            <button type="button" onClick={() => setBulkOpen(true)}><Upload size={18} /> Upload Bulk</button>
+            <button type="button" onClick={() => { reset(); setModalOpen(true); }}><Plus size={18} /> Tambah Guru</button>
+            <button type="button" className="ghost-button" onClick={onExit}>Keluar</button>
+          </div>
+        </div>
+        <PanelTitle icon={UserRound} title="Data Guru" />
+        {notice ? <div className="success-box">{notice}</div> : null}
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Nama Guru</th>
+                <th>Username</th>
+                <th>Mapel Diampu</th>
+                <th>Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              {teachers.map((teacher) => (
+                <tr key={teacher.id}>
+                  <td><strong>{teacher.name}</strong></td>
+                  <td><code>{teacher.username}</code></td>
+                  <td>{teacher.subjects?.join(", ") || "-"}</td>
+                  <td>
+                    <div className="row-actions">
+                      <button type="button" className="small-button" onClick={() => edit(teacher)}>Edit</button>
+                      <button type="button" className="danger-button" onClick={() => remove(teacher)}><Trash2 size={15} /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {teachers.length ? null : <tr><td colSpan="4">Belum ada guru.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {modalOpen ? (
+        <Modal title={editingId ? "Edit Guru" : "Tambah Guru"} icon={UserRound} onClose={() => { reset(); setModalOpen(false); }}>
+          <form className="student-form" onSubmit={submit}>
+            <label>Nama Guru<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></label>
+            <label>Username<input value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} required /></label>
+            <label>Password<input value={form.password} placeholder={editingId ? "Kosongkan jika tidak diubah" : ""} onChange={(event) => setForm({ ...form, password: event.target.value })} required={!editingId} /></label>
+            <div className="inline-fields">
+              <label>Mapel 1<input value={form.mapel1} placeholder="Contoh: Informatika" onChange={(event) => setForm({ ...form, mapel1: event.target.value })} /></label>
+              <label>Mapel 2<input value={form.mapel2} placeholder="Contoh: Matematika" onChange={(event) => setForm({ ...form, mapel2: event.target.value })} /></label>
+            </div>
+            <div className="inline-fields">
+              <label>Mapel 3<input value={form.mapel3} onChange={(event) => setForm({ ...form, mapel3: event.target.value })} /></label>
+              <label>Mapel 4<input value={form.mapel4} onChange={(event) => setForm({ ...form, mapel4: event.target.value })} /></label>
+              <label>Mapel 5<input value={form.mapel5} onChange={(event) => setForm({ ...form, mapel5: event.target.value })} /></label>
+            </div>
+            <div className="form-actions">
+              <button type="submit"><Save size={18} /> {editingId ? "Simpan Guru" : "Tambah Guru"}</button>
+              <button type="button" className="ghost-button" onClick={() => { reset(); setModalOpen(false); }}>Batal</button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {bulkOpen ? (
+        <Modal title="Upload Bulk Guru" icon={Upload} onClose={() => setBulkOpen(false)} wide>
+          <div className="import-box">
+            <strong>Import Excel/CSV Guru</strong>
+            <p>Header yang didukung: `name`, `username`, `password`, `Mapel 1`, `Mapel 2`, sampai `Mapel 5`. Kolom `nama` juga didukung sebagai pengganti `name`.</p>
+            <p>Jika username sudah ada, data guru akan diperbarui. Mapel yang cocok dengan daftar ujian akan otomatis menjadi penugasan guru.</p>
+            <div className="sample-table teacher-sample-table">
+              <div>name</div><div>username</div><div>password</div><div>Mapel 1</div><div>Mapel 2</div><div>Mapel 3</div>
+              <div>Ibu Zuyun</div><div>zuyun</div><div>zuyun123</div><div>Informatika</div><div>Matematika</div><div></div>
+              <div>Bapak Sidiq</div><div>sidiq</div><div>sidiq123</div><div>Informatika</div><div>Bahasa Inggris</div><div>Agama</div>
+            </div>
+            <button type="button" className="ghost-button" onClick={downloadTeacherTemplate}><Upload size={18} /> Download Contoh CSV</button>
+            <label className="file-button">
+              <Upload size={18} />
+              Pilih File
+              <input type="file" accept=".xlsx,.csv" onChange={importFile} />
+            </label>
+          </div>
+        </Modal>
+      ) : null}
+    </div>
+  );
+}
+
 function StudentManager({ students, onChanged, onExit }) {
-  const emptyForm = { nis: "", nisn: "", name: "", gender: "", username: "", password: "", className: "", room: "", session: "", mapelPilihan1: "", mapelPilihan2: "", mapelPilihan3: "", mapelPilihan4: "", mapelPilihan5: "" };
+  const emptyForm = { nis: "", nisn: "", name: "", gender: "", username: "", password: "", className: "", mapelPilihan1: "", mapelPilihan2: "", mapelPilihan3: "", mapelPilihan4: "", mapelPilihan5: "" };
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState("");
   const [query, setQuery] = useState("");
@@ -342,7 +1328,7 @@ function StudentManager({ students, onChanged, onExit }) {
   const [pageSize, setPageSize] = useState(50);
 
   const filtered = students.filter((student) => {
-    const haystack = `${student.nis} ${student.name} ${student.username} ${student.className} ${formatElectiveSubjects(student).join(" ")} ${student.room} ${student.session}`.toLowerCase();
+    const haystack = `${student.nis} ${student.name} ${student.username} ${student.className} ${formatElectiveSubjects(student).join(" ")}`.toLowerCase();
     return haystack.includes(query.toLowerCase());
   });
   const paged = getPageItems(filtered, page, pageSize);
@@ -358,8 +1344,6 @@ function StudentManager({ students, onChanged, onExit }) {
       username: student.username,
       password: student.password,
       className: student.className,
-      room: student.room,
-      session: student.session,
       mapelPilihan1: electives[0] || "",
       mapelPilihan2: electives[1] || "",
       mapelPilihan3: electives[2] || "",
@@ -383,8 +1367,6 @@ function StudentManager({ students, onChanged, onExit }) {
       name: form.name,
       gender: form.gender,
       className: form.className,
-      room: form.room,
-      session: form.session,
       username: form.username || form.nis,
       password: form.password || form.nis,
       electiveSubjects: [form.mapelPilihan1, form.mapelPilihan2, form.mapelPilihan3, form.mapelPilihan4, form.mapelPilihan5].map((item) => item.trim()).filter(Boolean)
@@ -422,6 +1404,21 @@ function StudentManager({ students, onChanged, onExit }) {
     onChanged();
   }
 
+  async function generateFilteredPasswords() {
+    if (!filtered.length) {
+      setNotice("Tidak ada siswa sesuai filter untuk dibuatkan password.");
+      return;
+    }
+    const ok = window.confirm(`Generate ulang password untuk ${filtered.length} siswa sesuai filter saat ini? Kartu peserta lama harus dicetak ulang.`);
+    if (!ok) return;
+    const result = await api("/students/passwords", {
+      method: "POST",
+      body: JSON.stringify({ studentIds: filtered.map((student) => student.id) })
+    });
+    setNotice(`${result.updated} password siswa berhasil dibuat ulang. Cetak ulang kartu peserta setelah perubahan ini.`);
+    onChanged();
+  }
+
   return (
     <div className="page-stack">
       <section className="panel">
@@ -429,6 +1426,7 @@ function StudentManager({ students, onChanged, onExit }) {
           <div className="toolbar-actions">
             <button type="button" onClick={() => setModal("bulk")}><Upload size={18} /> Upload Bulk</button>
             <button type="button" onClick={() => { reset(); setModal("form"); }}><Plus size={18} /> Tambah Siswa</button>
+            <button type="button" className="ghost-button" onClick={generateFilteredPasswords}><KeyRound size={18} /> Generate Password Filter</button>
             <button type="button" className="ghost-button" onClick={onExit}>Keluar</button>
           </div>
           <label className="search-box">
@@ -453,8 +1451,6 @@ function StudentManager({ students, onChanged, onExit }) {
                 <th>Mapel Pilihan 4</th>
                 <th>Mapel Pilihan 5</th>
                 <th>Username</th>
-                <th>Ruang</th>
-                <th>Sesi</th>
                 <th>Aksi</th>
               </tr>
             </thead>
@@ -472,8 +1468,6 @@ function StudentManager({ students, onChanged, onExit }) {
                   <td>{formatElectiveSubjects(student)[3] || "-"}</td>
                   <td>{formatElectiveSubjects(student)[4] || "-"}</td>
                   <td><code>{student.username}</code></td>
-                  <td>{student.room}</td>
-                  <td>{student.session}</td>
                   <td>
                     <div className="row-actions">
                       <button type="button" className="small-button" onClick={() => edit(student)}>Edit</button>
@@ -517,11 +1511,7 @@ function StudentManager({ students, onChanged, onExit }) {
             </div>
             <div className="inline-fields">
               <label>Username<input value={form.username} placeholder="Default NIS" onChange={(event) => setForm({ ...form, username: event.target.value })} /></label>
-              <label>Password<input value={form.password} placeholder="Default NIS" onChange={(event) => setForm({ ...form, password: event.target.value })} /></label>
-            </div>
-            <div className="inline-fields">
-              <label>Ruang<input value={form.room} onChange={(event) => setForm({ ...form, room: event.target.value })} /></label>
-              <label>Sesi<input value={form.session} onChange={(event) => setForm({ ...form, session: event.target.value })} /></label>
+              <label>Password<input value={form.password} placeholder="Kosongkan = random 6 karakter" onChange={(event) => setForm({ ...form, password: event.target.value })} /></label>
             </div>
             <div className="form-actions">
               <button type="submit"><Save size={18} /> {editingId ? "Simpan Perubahan" : "Tambah Siswa"}</button>
@@ -535,7 +1525,8 @@ function StudentManager({ students, onChanged, onExit }) {
         <Modal title="Upload Bulk Siswa" icon={Upload} onClose={() => setModal("")} wide>
           <div className="import-box">
             <strong>Import Excel/CSV</strong>
-            <p>Header yang didukung: `nis`, `nisn`, `name`, `gender`, `className`, `username`, `password`, `room`, `session`, `Mapel Pilihan 1`, sampai `Mapel Pilihan 5`.</p>
+            <p>Header yang didukung: `nis`, `nisn`, `name`, `gender`, `className`, `username`, `password`, `Mapel Pilihan 1`, sampai `Mapel Pilihan 5`.</p>
+            <p>Kolom `password` boleh dikosongkan. Siswa baru akan otomatis mendapat password random 6 karakter huruf/angka.</p>
             <p>Gunakan file `.xlsx` atau `.csv`. Jika file masih `.xls` lama, buka di Excel lalu `Save As` menjadi `.xlsx` terlebih dahulu.</p>
             <div className="sample-table">
               <div>nis</div><div>nisn</div><div>name</div><div>className</div><div>Mapel Pilihan 1</div><div>Mapel Pilihan 2</div>
@@ -555,30 +1546,16 @@ function StudentManager({ students, onChanged, onExit }) {
 }
 
 function ParticipantCards({ students }) {
-  const [qrMap, setQrMap] = useState({});
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(30);
+  const [printSize, setPrintSize] = useState("compact");
 
   const filtered = students.filter((student) => {
-    const text = `${student.nis} ${student.name} ${student.className} ${formatElectiveSubjects(student).join(" ")} ${student.room} ${student.session}`.toLowerCase();
+    const text = `${student.nis} ${student.name} ${student.className} ${formatElectiveSubjects(student).join(" ")}`.toLowerCase();
     return text.includes(query.toLowerCase());
   });
   const paged = getPageItems(filtered, page, pageSize);
-
-  useEffect(() => {
-    let alive = true;
-    async function buildQr() {
-      const pairs = await Promise.all(students.map(async (student) => {
-        const payload = `CBT94|${student.username}|${student.className}|${student.session}`;
-        const url = await QRCode.toDataURL(payload, { margin: 1, width: 128 });
-        return [student.id, url];
-      }));
-      if (alive) setQrMap(Object.fromEntries(pairs));
-    }
-    buildQr();
-    return () => { alive = false; };
-  }, [students]);
 
   function Card({ student }) {
     return (
@@ -588,27 +1565,32 @@ function ParticipantCards({ students }) {
             <span>CBT SMAN 94 Jakarta</span>
             <strong>Kartu Peserta Ujian</strong>
           </div>
-          {qrMap[student.id] ? <img src={qrMap[student.id]} alt={`QR ${student.name}`} /> : <div className="qr-placeholder" />}
         </div>
-        <div className="student-name">{student.name}</div>
         <div className="print-fields">
+          <span>Nama</span><strong>{student.name}</strong>
           <span>NIS</span><strong>{student.nis}</strong>
           <span>Kelas</span><strong>{student.className}</strong>
-          <span>Ruang</span><strong>{student.room}</strong>
-          <span>Sesi</span><strong>{student.session}</strong>
-          <span>Username</span><code>{student.username}</code>
-          <span>Password</span><code>{student.password}</code>
+          <span>User</span><strong className="credential-value">{student.username}</strong>
+          <span>Pass</span><strong className="credential-value">{student.password}</strong>
         </div>
       </article>
     );
   }
 
   return (
-    <div className="cards-page">
+    <div className={`cards-page print-size-${printSize}`}>
       <section className="panel no-print">
         <div className="panel-toolbar">
           <PanelTitle icon={CreditCard} title="Cetak Kartu Peserta" />
           <div className="print-actions">
+            <label className="print-size-control">
+              <span>Ukuran Cetak</span>
+              <select value={printSize} onChange={(event) => setPrintSize(event.target.value)}>
+                <option value="large">Besar</option>
+                <option value="medium">Sedang</option>
+                <option value="compact">Hemat</option>
+              </select>
+            </label>
             <label className="search-box">
               <Search size={16} />
               <input value={query} placeholder="Filter kartu..." onChange={(event) => { setQuery(event.target.value); setPage(1); }} />
@@ -616,8 +1598,20 @@ function ParticipantCards({ students }) {
             <button type="button" onClick={() => window.print()}><Printer size={18} /> Cetak</button>
           </div>
         </div>
-        <p className="muted">Layar memakai pagination agar browser ringan. Saat klik cetak, semua kartu sesuai filter akan ikut tercetak. Default cetak disiapkan sekitar 15 kartu per A4.</p>
+        <p className="muted">QR code disembunyikan dulu sampai fitur scan pengawas/guru dipakai. Mode Hemat menjadi default agar lebih banyak kartu muat dalam A4. Saat klik cetak, semua kartu sesuai filter ikut tercetak.</p>
       </section>
+      <div className="no-print">
+        <PaginationControls
+          page={paged.currentPage}
+          pageSize={pageSize}
+          total={filtered.length}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          pageSizeOptions={[30, 45, 60]}
+          itemLabel="kartu"
+          compact
+        />
+      </div>
       <section className="print-grid screen-card-grid">
         {paged.items.map((student) => <Card student={student} key={student.id} />)}
       </section>
@@ -628,6 +1622,9 @@ function ParticipantCards({ students }) {
           total={filtered.length}
           onPageChange={setPage}
           onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          pageSizeOptions={[30, 45, 60]}
+          itemLabel="kartu"
+          compact
         />
       </div>
       <section className="print-grid print-only">
@@ -637,13 +1634,16 @@ function ParticipantCards({ students }) {
   );
 }
 
-function ExamManager({ exams, onChanged, onExit }) {
+function ExamManager({ exams, questions = [], teachers = [], onChanged, onExit }) {
   const emptyForm = {
     code: "",
     subject: "",
+    teacherIds: [],
     date: "",
     startTime: "",
+    endTime: "",
     durationMinutes: 90,
+    submitUnlockMinutes: 30,
     token: "",
     status: "draft",
     randomizeQuestions: true,
@@ -653,20 +1653,34 @@ function ExamManager({ exams, onChanged, onExit }) {
   const [editingId, setEditingId] = useState("");
   const [notice, setNotice] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
+  const [reviewExamId, setReviewExamId] = useState("");
+  const [questionEditMode, setQuestionEditMode] = useState(false);
+  const [questionEditingId, setQuestionEditingId] = useState("");
+  const [questionForm, setQuestionForm] = useState(createDefaultQuestion());
+  const [teacherToAdd, setTeacherToAdd] = useState("");
+
+  const reviewExam = exams.find((exam) => exam.id === reviewExamId);
+  const reviewQuestions = questions.filter((question) => question.examId === reviewExamId);
+  const selectedTeachers = teachers.filter((teacher) => form.teacherIds.includes(teacher.id));
+  const availableTeachers = teachers.filter((teacher) => !form.teacherIds.includes(teacher.id));
 
   function edit(exam) {
     setEditingId(exam.id);
     setForm({
       code: exam.code,
       subject: exam.subject,
+      teacherIds: exam.teacherIds || (exam.teacherId ? [exam.teacherId] : []),
       date: exam.date,
       startTime: exam.startTime,
+      endTime: exam.endTime || deriveEndTime(exam.startTime, exam.durationMinutes),
       durationMinutes: exam.durationMinutes,
+      submitUnlockMinutes: exam.submitUnlockMinutes ?? 30,
       token: exam.token,
       status: exam.status,
       randomizeQuestions: exam.randomizeQuestions,
       randomizeOptions: exam.randomizeOptions
     });
+    setTeacherToAdd("");
     setNotice("");
     setModalOpen(true);
   }
@@ -674,11 +1688,49 @@ function ExamManager({ exams, onChanged, onExit }) {
   function reset() {
     setEditingId("");
     setForm(emptyForm);
+    setTeacherToAdd("");
+  }
+
+  function addTeacherToExam() {
+    if (!teacherToAdd || form.teacherIds.includes(teacherToAdd)) return;
+    setForm({ ...form, teacherIds: [...form.teacherIds, teacherToAdd] });
+    setTeacherToAdd("");
+  }
+
+  function removeTeacherFromExam(teacherId) {
+    setForm({ ...form, teacherIds: form.teacherIds.filter((id) => id !== teacherId) });
+  }
+
+  function resetQuestionForm(examId = reviewExamId) {
+    setQuestionEditingId("");
+    setQuestionForm(createDefaultQuestion(examId));
+  }
+
+  function openQuestionReview(exam) {
+    setReviewExamId(exam.id);
+    setQuestionEditMode(false);
+    resetQuestionForm(exam.id);
+    setNotice("");
+  }
+
+  function closeQuestionReview() {
+    setReviewExamId("");
+    setQuestionEditMode(false);
+    resetQuestionForm("");
+  }
+
+  function editQuestionFromReview(question) {
+    setQuestionEditMode(true);
+    setQuestionEditingId(question.id);
+    setQuestionForm(normalizeQuestionForForm(question, reviewExamId));
   }
 
   async function submit(event) {
     event.preventDefault();
-    const payload = { ...form, durationMinutes: Number(form.durationMinutes) };
+    const payload = {
+      ...form,
+      durationMinutes: deriveDurationMinutes(form.startTime, form.endTime, form.durationMinutes)
+    };
     if (editingId) {
       await api(`/exams/${editingId}`, { method: "PUT", body: JSON.stringify(payload) });
       setNotice("Ujian berhasil diperbarui.");
@@ -692,9 +1744,47 @@ function ExamManager({ exams, onChanged, onExit }) {
   }
 
   async function setStatus(exam, status) {
-    await api(`/exams/${exam.id}`, { method: "PUT", body: JSON.stringify({ ...exam, status }) });
-    setNotice(status === "published" ? "Ujian dipublish dan bisa diakses peserta." : "Status ujian diperbarui.");
-    onChanged();
+    if (status === "published" && exam.reviewStatus !== "reviewed") {
+      const ok = window.confirm("Soal ujian ini belum ditandai Sudah Dicek. Tetap publish ujian?");
+      if (!ok) return;
+    }
+    try {
+      await api(`/exams/${exam.id}`, { method: "PUT", body: JSON.stringify({ ...exam, status }) });
+      setNotice(status === "published" ? "Ujian dipublish dan bisa diakses peserta." : "Status ujian diperbarui.");
+      onChanged();
+    } catch (error) {
+      setNotice(error.message);
+    }
+  }
+
+  async function setReviewStatus(exam, reviewStatus) {
+    await api(`/exams/${exam.id}`, { method: "PUT", body: JSON.stringify({ ...exam, reviewStatus }) });
+    setNotice(reviewStatus === "reviewed" ? "Soal ujian ditandai sudah dicek admin." : "Soal ujian ditandai perlu revisi.");
+    await onChanged();
+  }
+
+  async function submitReviewQuestion(event) {
+    event.preventDefault();
+    if (!reviewExam) return;
+    const payload = { ...cleanQuestionForSubmit(questionForm), examId: reviewExam.id };
+    if (questionEditingId) {
+      await api(`/questions/${questionEditingId}`, { method: "PUT", body: JSON.stringify(payload) });
+      setNotice("Soal berhasil diperbarui admin.");
+    } else {
+      await api("/questions", { method: "POST", body: JSON.stringify(payload) });
+      setNotice("Soal baru berhasil ditambahkan admin.");
+    }
+    resetQuestionForm(reviewExam.id);
+    await onChanged();
+  }
+
+  async function removeReviewQuestion(question) {
+    const ok = window.confirm("Hapus soal ini dari paket ujian?");
+    if (!ok) return;
+    await api(`/questions/${question.id}`, { method: "DELETE" });
+    if (questionEditingId === question.id) resetQuestionForm(question.examId);
+    setNotice("Soal berhasil dihapus.");
+    await onChanged();
   }
 
   async function remove(exam) {
@@ -722,9 +1812,12 @@ function ExamManager({ exams, onChanged, onExit }) {
               <tr>
                 <th>Kode</th>
                 <th>Mapel</th>
-                <th>Jadwal</th>
+                <th>Guru</th>
+                <th>Tanggal</th>
+                <th>Waktu</th>
                 <th>Token</th>
                 <th>Status</th>
+                <th>Review Soal</th>
                 <th>Peserta</th>
                 <th>Aksi</th>
               </tr>
@@ -734,12 +1827,16 @@ function ExamManager({ exams, onChanged, onExit }) {
                 <tr key={exam.id}>
                   <td>{exam.code}</td>
                   <td>{exam.subject}</td>
-                  <td>{exam.date} {exam.startTime}</td>
+                  <td>{exam.teacherNames?.join(", ") || "-"}</td>
+                  <td>{exam.date}</td>
+                  <td>{formatExamTimeRange(exam)}</td>
                   <td><code>{exam.token}</code></td>
                   <td>{exam.status}</td>
+                  <td><span className={reviewStatusClass(exam.reviewStatus)}>{formatReviewStatus(exam.reviewStatus)}</span></td>
                   <td>{exam.participantCount}</td>
                   <td>
                     <div className="row-actions">
+                      <button type="button" className="small-button" onClick={() => openQuestionReview(exam)}>Lihat Soal</button>
                       <button type="button" className="small-button" onClick={() => edit(exam)}>Edit</button>
                       <button type="button" className="small-button" onClick={() => setStatus(exam, exam.status === "published" ? "closed" : "published")}>
                         {exam.status === "published" ? "Tutup" : "Publish"}
@@ -762,12 +1859,36 @@ function ExamManager({ exams, onChanged, onExit }) {
               <label>Token<input value={form.token} onChange={(event) => setForm({ ...form, token: event.target.value.toUpperCase() })} required /></label>
             </div>
             <label>Mata Pelajaran<input value={form.subject} onChange={(event) => setForm({ ...form, subject: event.target.value })} required /></label>
-            <div className="inline-fields">
-              <label>Tanggal<input type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} required /></label>
-              <label>Jam Mulai<input type="time" value={form.startTime} onChange={(event) => setForm({ ...form, startTime: event.target.value })} required /></label>
+            <div className="field-control">
+              <span>Guru Penanggung Jawab</span>
+              <div className="teacher-picker">
+                <div className="teacher-picker-row">
+                  <select value={teacherToAdd} onChange={(event) => setTeacherToAdd(event.target.value)} disabled={!availableTeachers.length}>
+                    <option value="">{availableTeachers.length ? "Pilih guru..." : "Semua guru sudah dipilih"}</option>
+                    {availableTeachers.map((teacher) => <option value={teacher.id} key={teacher.id}>{teacher.name}</option>)}
+                  </select>
+                  <button type="button" className="ghost-button" onClick={addTeacherToExam} disabled={!teacherToAdd}>Tambah Guru</button>
+                </div>
+                <div className="selected-teachers">
+                  {selectedTeachers.map((teacher) => (
+                    <span className="teacher-chip" key={teacher.id}>
+                      {teacher.name}
+                      <button type="button" aria-label={`Hapus ${teacher.name}`} onClick={() => removeTeacherFromExam(teacher.id)}>x</button>
+                    </span>
+                  ))}
+                  {selectedTeachers.length ? null : <p className="muted">Belum ada guru penanggung jawab.</p>}
+                </div>
+                {teachers.length ? null : <p className="muted">Belum ada guru. Tambahkan guru di menu Data Guru terlebih dahulu.</p>}
+              </div>
             </div>
             <div className="inline-fields">
-              <label>Durasi Menit<input type="number" min="1" value={form.durationMinutes} onChange={(event) => setForm({ ...form, durationMinutes: event.target.value })} /></label>
+              <label>Tanggal<input type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} required /></label>
+              <label>Jam Mulai<input type="time" value={form.startTime} onChange={(event) => setForm({ ...form, startTime: event.target.value, endTime: deriveEndTime(event.target.value, form.durationMinutes) })} required /></label>
+              <label>Jam Selesai<input type="time" value={form.endTime} onChange={(event) => setForm({ ...form, endTime: event.target.value })} required /></label>
+            </div>
+            <div className="inline-fields">
+              <label>Durasi Menit<input type="number" min="1" value={form.durationMinutes} onChange={(event) => setForm({ ...form, durationMinutes: event.target.value, endTime: form.startTime ? deriveEndTime(form.startTime, event.target.value) : form.endTime })} /></label>
+              <label>Submit Tersedia<input type="number" min="0" value={form.submitUnlockMinutes} onChange={(event) => setForm({ ...form, submitUnlockMinutes: event.target.value })} /><span className="field-hint">Menit terakhir sebelum ujian selesai. Default 30.</span></label>
               <label>Status
                 <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>
                   <option value="draft">Draft</option>
@@ -785,13 +1906,62 @@ function ExamManager({ exams, onChanged, onExit }) {
           </form>
         </Modal>
       ) : null}
+
+      {reviewExam ? (
+        <Modal title={`Review Soal - ${reviewExam.code}`} icon={BookOpen} onClose={closeQuestionReview} wide>
+          <div className="review-head">
+            <div>
+              <strong>{reviewExam.subject}</strong>
+              <span>{reviewExam.date} | {formatExamTimeRange(reviewExam)} | {reviewQuestions.length} soal</span>
+            </div>
+            <span className={reviewStatusClass(reviewExam.reviewStatus)}>{formatReviewStatus(reviewExam.reviewStatus)}</span>
+          </div>
+          <div className="form-actions">
+            <button type="button" onClick={() => { setQuestionEditMode((value) => !value); resetQuestionForm(reviewExam.id); }}>
+              <BookOpen size={18} /> {questionEditMode ? "Selesai Edit" : "Edit Soal"}
+            </button>
+            <button type="button" className="ghost-button" onClick={() => setReviewStatus(reviewExam, "reviewed")}>Tandai Sudah Dicek</button>
+            <button type="button" className="ghost-button" onClick={() => setReviewStatus(reviewExam, "needs_revision")}>Perlu Revisi</button>
+          </div>
+
+          {questionEditMode ? (
+            <div className="review-editor">
+              <strong>{questionEditingId ? "Edit Soal Terpilih" : "Tambah Soal Baru"}</strong>
+              <QuestionEditor
+                form={questionForm}
+                setForm={setQuestionForm}
+                exams={[reviewExam]}
+                onSubmit={submitReviewQuestion}
+                editingId={questionEditingId}
+                onCancel={() => resetQuestionForm(reviewExam.id)}
+              />
+            </div>
+          ) : null}
+
+          <div className="question-list review-question-list">
+            {reviewQuestions.map((question, index) => (
+              <div className="question-summary-card" key={question.id}>
+                <QuestionSummary question={question} index={index} />
+                {questionEditMode ? (
+                  <div className="row-actions">
+                    <button type="button" className="small-button" onClick={() => editQuestionFromReview(question)}>Edit</button>
+                    <button type="button" className="danger-button" onClick={() => removeReviewQuestion(question)}><Trash2 size={15} /></button>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+            {reviewQuestions.length ? null : <p className="muted">Belum ada soal pada ujian ini.</p>}
+          </div>
+        </Modal>
+      ) : null}
     </div>
   );
 }
 
 function ExamParticipants({ exams, students, attempts, onChanged }) {
   const [selectedExamId, setSelectedExamId] = useState(exams[0]?.id || "");
-  const [participantFilter, setParticipantFilter] = useState("");
+  const [classFilter, setClassFilter] = useState("");
+  const [electiveFilter, setElectiveFilter] = useState("");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -802,11 +1972,13 @@ function ExamParticipants({ exams, students, attempts, onChanged }) {
 
   const selectedExam = exams.find((exam) => exam.id === selectedExamId);
   const selectedStudentIds = new Set(attempts.filter((attempt) => attempt.examId === selectedExamId).map((attempt) => attempt.studentId));
+  const classOptions = [...new Set(students.map((student) => student.className).filter(Boolean))].sort((a, b) => a.localeCompare(b, "id"));
   const electiveOptions = [...new Set(students.flatMap((student) => formatElectiveSubjects(student)))].sort((a, b) => a.localeCompare(b, "id"));
   const filteredStudents = students.filter((student) => {
-    const matchesSubject = participantFilter ? formatElectiveSubjects(student).includes(participantFilter) : true;
+    const matchesClass = classFilter ? student.className === classFilter : true;
+    const matchesSubject = electiveFilter ? formatElectiveSubjects(student).includes(electiveFilter) : true;
     const text = `${student.nis} ${student.name} ${student.className} ${formatElectiveSubjects(student).join(" ")}`.toLowerCase();
-    return matchesSubject && text.includes(query.toLowerCase());
+    return matchesClass && matchesSubject && text.includes(query.toLowerCase());
   });
   const paged = getPageItems(filteredStudents, page, pageSize);
 
@@ -822,7 +1994,7 @@ function ExamParticipants({ exams, students, attempts, onChanged }) {
     onChanged();
   }
 
-  async function selectAllParticipants() {
+  async function selectFilteredParticipants() {
     if (!selectedExam) return;
     const nextStudentIds = new Set(selectedStudentIds);
     for (const student of filteredStudents) nextStudentIds.add(student.id);
@@ -833,27 +2005,61 @@ function ExamParticipants({ exams, students, attempts, onChanged }) {
     onChanged();
   }
 
+  async function unselectFilteredParticipants() {
+    if (!selectedExam) return;
+    const filteredIds = new Set(filteredStudents.map((student) => student.id));
+    const nextStudentIds = [...selectedStudentIds].filter((studentId) => !filteredIds.has(studentId));
+    await api(`/exams/${selectedExam.id}/participants`, {
+      method: "PUT",
+      body: JSON.stringify({ studentIds: nextStudentIds })
+    });
+    onChanged();
+  }
+
   return (
     <section className="panel">
-      <div className="panel-toolbar">
-        <PanelTitle icon={Users} title="Peserta Ujian" />
-        <div className="toolbar-actions">
-          <select value={selectedExamId} onChange={(event) => { setSelectedExamId(event.target.value); setPage(1); }}>
-            {exams.map((exam) => <option value={exam.id} key={exam.id}>{exam.code} - {exam.subject}</option>)}
-          </select>
-          <select value={participantFilter} onChange={(event) => { setParticipantFilter(event.target.value); setPage(1); }}>
-            <option value="">Semua siswa</option>
-            {electiveOptions.map((subject) => <option value={subject} key={subject}>{subject}</option>)}
-          </select>
-          <button type="button" className="ghost-button" onClick={selectAllParticipants}>Pilih Semua Filter</button>
+      <div className="participant-header">
+        <div className="participant-heading">
+          <Users size={18} />
+          <strong>Peserta Ujian</strong>
+          <span className="participant-separator">|</span>
+          <span>{filteredStudents.length} Siswa Tampil</span>
+          <span className="participant-separator">|</span>
+          <span>{selectedStudentIds.size} sudah dipilih untuk ujian ini</span>
         </div>
-      </div>
-      <div className="panel-toolbar">
-        <p className="muted">{filteredStudents.length} siswa tampil. {selectedStudentIds.size} peserta sudah dipilih untuk ujian ini.</p>
-        <label className="search-box">
-          <Search size={16} />
-          <input value={query} placeholder="Cari peserta..." onChange={(event) => { setQuery(event.target.value); setPage(1); }} />
-        </label>
+        <div className="participant-controls">
+          <label className="field-control">
+            <span>Pilih Mata Pelajaran</span>
+            <select value={selectedExamId} onChange={(event) => { setSelectedExamId(event.target.value); setPage(1); }}>
+              {exams.map((exam) => <option value={exam.id} key={exam.id}>{exam.code} - {exam.subject}</option>)}
+            </select>
+          </label>
+          <label className="field-control">
+            <span>Kelas</span>
+            <select value={classFilter} onChange={(event) => { setClassFilter(event.target.value); setPage(1); }}>
+              <option value="">Semua Siswa</option>
+              {classOptions.map((className) => <option value={className} key={className}>{className}</option>)}
+            </select>
+          </label>
+          <label className="field-control">
+            <span>Mapel Pilihan</span>
+            <select value={electiveFilter} onChange={(event) => { setElectiveFilter(event.target.value); setPage(1); }}>
+              <option value="">Semua Mapel Pilihan</option>
+              {electiveOptions.map((subject) => <option value={subject} key={subject}>{subject}</option>)}
+            </select>
+          </label>
+          <label className="field-control participant-search-control">
+            <span>Cari Peserta</span>
+            <span className="search-box">
+              <Search size={16} />
+              <input value={query} placeholder="Cari peserta..." onChange={(event) => { setQuery(event.target.value); setPage(1); }} />
+            </span>
+          </label>
+          <div className="participant-actions" aria-label="Aksi peserta berdasarkan filter aktif">
+            <button type="button" onClick={selectFilteredParticipants}>Pilih Semua</button>
+            <button type="button" className="ghost-button" onClick={unselectFilteredParticipants}>Uncheck Semua</button>
+          </div>
+        </div>
       </div>
       <div className="table-wrap">
         <table className="participant-table">
@@ -901,45 +2107,626 @@ function ExamParticipants({ exams, students, attempts, onChanged }) {
   );
 }
 
-function ResultsDashboard({ results }) {
+function ResultsDashboard({ results, students, exams }) {
+  const [examFilter, setExamFilter] = useState("");
+  const [classFilter, setClassFilter] = useState("");
+  const [electiveFilter, setElectiveFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+
+  const studentById = useMemo(() => new Map(students.map((student) => [student.id, student])), [students]);
+  const examById = useMemo(() => new Map(exams.map((exam) => [exam.id, exam])), [exams]);
+  const classOptions = [...new Set(students.map((student) => student.className).filter(Boolean))].sort((a, b) => a.localeCompare(b, "id"));
+  const electiveOptions = [...new Set(students.flatMap((student) => formatElectiveSubjects(student)))].sort((a, b) => a.localeCompare(b, "id"));
+
+  const enrichedResults = results.map((item) => {
+    const student = studentById.get(item.studentId) || {};
+    const exam = examById.get(item.examId) || {};
+    return {
+      ...item,
+      nis: student.nis || "",
+      nisn: student.nisn || "",
+      studentName: item.studentName || student.name || "-",
+      className: item.className || student.className || "-",
+      examCode: item.examCode || exam.code || "-",
+      subject: item.subject || exam.subject || "-",
+      electiveSubjects: formatElectiveSubjects(student)
+    };
+  });
+
+  const filteredResults = enrichedResults.filter((item) => {
+    const matchesExam = examFilter ? item.examId === examFilter : true;
+    const matchesClass = classFilter ? item.className === classFilter : true;
+    const matchesElective = electiveFilter ? item.electiveSubjects.includes(electiveFilter) : true;
+    const matchesStatus = statusFilter ? item.status === statusFilter : true;
+    const text = [
+      item.nis,
+      item.nisn,
+      item.studentName,
+      item.className,
+      item.examCode,
+      item.subject,
+      item.electiveSubjects.join(" ")
+    ].join(" ").toLowerCase();
+    return matchesExam && matchesClass && matchesElective && matchesStatus && text.includes(query.toLowerCase());
+  });
+
+  const paged = getPageItems(filteredResults, page, pageSize);
+  const submittedResults = filteredResults.filter((item) => item.status === "submitted");
+  const averageScore = submittedResults.length
+    ? Math.round(submittedResults.reduce((total, item) => total + Number(item.score?.percent || 0), 0) / submittedResults.length)
+    : "-";
+
+  function changeFilter(setter, value) {
+    setter(value);
+    setPage(1);
+  }
+
+  function downloadFilteredResults() {
+    const headers = ["nis", "nisn", "nama", "kelas", "mapel_pilihan", "kode_ujian", "mata_pelajaran", "status", "nilai", "benar", "total", "update"];
+    const rows = filteredResults.map((item) => [
+      item.nis,
+      item.nisn,
+      item.studentName,
+      item.className,
+      item.electiveSubjects.join("; "),
+      item.examCode,
+      item.subject,
+      formatResultStatus(item.status),
+      item.score?.percent ?? "",
+      item.score?.earnedScore ?? "",
+      item.score?.totalScore ?? "",
+      item.updatedAt ? new Date(item.updatedAt).toLocaleString("id-ID") : ""
+    ]);
+    const csv = [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "hasil-nilai-cbt-sesuai-filter.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <section className="panel">
-      <PanelTitle icon={CheckCircle2} title="Hasil Nilai dan Status Peserta" />
-      <DataTable
-        headers={["Siswa", "Kelas", "Ujian", "Status", "Nilai", "Benar/Total", "Update"]}
-        rows={results.map((item) => [
-          item.studentName,
-          item.className,
-          item.examCode,
-          item.status,
-          item.score ? `${item.score.percent}` : "-",
-          item.score ? `${item.score.earnedScore}/${item.score.totalScore}` : "-",
-          item.updatedAt ? new Date(item.updatedAt).toLocaleString("id-ID") : "-"
-        ])}
+      <div className="result-header">
+        <PanelTitle icon={CheckCircle2} title="Hasil Nilai dan Status Peserta" />
+        <button type="button" className="ghost-button" onClick={downloadFilteredResults}>
+          <Download size={18} /> Download Nilai
+        </button>
+      </div>
+      <div className="result-summary">
+        <StatCard icon={Users} label="Data Tampil" value={filteredResults.length} />
+        <StatCard icon={CheckCircle2} label="Selesai" value={submittedResults.length} />
+        <StatCard icon={PlayCircle} label="Sedang Mengerjakan" value={filteredResults.filter((item) => item.status === "in_progress").length} />
+        <StatCard icon={ClipboardList} label="Rata-rata Nilai" value={averageScore} />
+      </div>
+      <div className="result-controls">
+        <label className="field-control">
+          <span>Ujian</span>
+          <select value={examFilter} onChange={(event) => changeFilter(setExamFilter, event.target.value)}>
+            <option value="">Semua Ujian</option>
+            {exams.map((exam) => <option value={exam.id} key={exam.id}>{exam.code} - {exam.subject}</option>)}
+          </select>
+        </label>
+        <label className="field-control">
+          <span>Kelas</span>
+          <select value={classFilter} onChange={(event) => changeFilter(setClassFilter, event.target.value)}>
+            <option value="">Semua Kelas</option>
+            {classOptions.map((className) => <option value={className} key={className}>{className}</option>)}
+          </select>
+        </label>
+        <label className="field-control">
+          <span>Mapel Pilihan</span>
+          <select value={electiveFilter} onChange={(event) => changeFilter(setElectiveFilter, event.target.value)}>
+            <option value="">Semua Mapel Pilihan</option>
+            {electiveOptions.map((subject) => <option value={subject} key={subject}>{subject}</option>)}
+          </select>
+        </label>
+        <label className="field-control">
+          <span>Status</span>
+          <select value={statusFilter} onChange={(event) => changeFilter(setStatusFilter, event.target.value)}>
+            <option value="">Semua Status</option>
+            <option value="not_started">Belum Mengerjakan</option>
+            <option value="in_progress">Sedang Mengerjakan</option>
+            <option value="submitted">Selesai</option>
+          </select>
+        </label>
+        <label className="field-control result-search-control">
+          <span>Cari Siswa</span>
+          <span className="search-box">
+            <Search size={16} />
+            <input value={query} placeholder="Cari siswa, NIS, ujian..." onChange={(event) => changeFilter(setQuery, event.target.value)} />
+          </span>
+        </label>
+      </div>
+      <div className="table-wrap">
+        <table className="result-table">
+          <thead>
+            <tr>
+              <th>NIS</th>
+              <th>NISN</th>
+              <th>Nama</th>
+              <th>Kelas</th>
+              <th>Mapel Pilihan</th>
+              <th>Ujian</th>
+              <th>Status</th>
+              <th>Nilai</th>
+              <th>Benar/Total</th>
+              <th>Update</th>
+            </tr>
+          </thead>
+          <tbody>
+            {paged.items.map((item) => (
+              <tr key={item.id}>
+                <td><code>{item.nis || "-"}</code></td>
+                <td>{item.nisn || "-"}</td>
+                <td><strong>{item.studentName}</strong></td>
+                <td>{item.className}</td>
+                <td>{item.electiveSubjects.join(", ") || "-"}</td>
+                <td><strong>{item.examCode}</strong><br /><span>{item.subject}</span></td>
+                <td><span className={resultStatusClass(item.status)}>{formatResultStatus(item.status)}</span></td>
+                <td>{item.score ? (item.score.manualPending ? `${item.score.percent}*` : item.score.percent) : "-"}</td>
+                <td>{item.score ? `${item.score.earnedScore}/${item.score.totalScore}` : "-"}</td>
+                <td>{item.score?.manualPending ? "Menunggu koreksi uraian" : (item.updatedAt ? new Date(item.updatedAt).toLocaleString("id-ID") : "-")}</td>
+              </tr>
+            ))}
+            {paged.items.length ? null : (
+              <tr>
+                <td colSpan="10">Belum ada data hasil sesuai filter.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <PaginationControls
+        page={paged.currentPage}
+        pageSize={pageSize}
+        total={filteredResults.length}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
       />
     </section>
   );
 }
 
+function ImageUploadField({ label, value, onChange, compact = false, buttonText = "Upload Gambar" }) {
+  const [meta, setMeta] = useState("");
+  const [error, setError] = useState("");
+
+  async function upload(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setError("");
+    setMeta("Mengompres gambar...");
+    try {
+      const result = await compressImageFile(file);
+      onChange(result.dataUrl);
+      setMeta(`${Math.round(result.size / 1024)} KB | ${result.width}x${result.height}px`);
+    } catch (err) {
+      setError(err.message);
+      setMeta("");
+    } finally {
+      event.target.value = "";
+    }
+  }
+
+  if (compact) {
+    return (
+      <div className="image-upload-compact">
+        {value ? <img src={value} alt={label} /> : null}
+        <label className="file-button compact-file-button">
+          <Upload size={16} />
+          {buttonText}
+          <input type="file" accept="image/*" onChange={upload} />
+        </label>
+        {value ? <button type="button" className="danger-button compact-danger" onClick={() => { onChange(""); setMeta(""); }}>Hapus</button> : null}
+        {meta ? <span>{meta}</span> : null}
+        {error ? <p className="error-text">{error}</p> : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="image-upload-box">
+      <div className="image-upload-head">
+        <strong>{label}</strong>
+        {value ? <button type="button" className="danger-button" onClick={() => { onChange(""); setMeta(""); }}>Hapus</button> : null}
+      </div>
+      {value ? <img src={value} alt={label} /> : null}
+      <label className="file-button">
+        <Upload size={18} />
+        Upload Gambar
+        <input type="file" accept="image/*" onChange={upload} />
+      </label>
+      <p className="muted">{meta || "Gambar akan otomatis disesuaikan untuk HP/tablet dan maksimal 500 KB."}</p>
+      {error ? <p className="error-text">{error}</p> : null}
+    </div>
+  );
+}
+
+function QuestionEditor({ form, setForm, exams, onSubmit, editingId, onCancel }) {
+  const activeOptions = form.options || [];
+
+  function updateOption(index, patch) {
+    const options = [...activeOptions];
+    options[index] = { ...options[index], ...patch };
+    const optionKeys = options.map((option) => option.key);
+    setForm({
+      ...form,
+      options,
+      answerKey: optionKeys.includes(form.answerKey) ? form.answerKey : optionKeys[0] || "A",
+      correctAnswers: (form.correctAnswers || []).filter((key) => optionKeys.includes(key))
+    });
+  }
+
+  function addOption() {
+    const used = new Set(activeOptions.map((option) => option.key));
+    const nextKey = OPTION_KEYS.find((key) => !used.has(key));
+    if (!nextKey) return;
+    setForm({ ...form, options: [...activeOptions, { key: nextKey, text: "", image: "" }] });
+  }
+
+  function removeOption(key) {
+    const options = activeOptions.filter((option) => option.key !== key);
+    setForm({
+      ...form,
+      options,
+      answerKey: form.answerKey === key ? options[0]?.key || "A" : form.answerKey,
+      correctAnswers: (form.correctAnswers || []).filter((item) => item !== key)
+    });
+  }
+
+  function toggleCorrectAnswer(key, checked) {
+    const values = new Set(form.correctAnswers || []);
+    if (checked) values.add(key);
+    else values.delete(key);
+    setForm({ ...form, correctAnswers: [...values] });
+  }
+
+  function updateStatement(index, patch) {
+    const statements = [...(form.statements || [])];
+    statements[index] = { ...statements[index], ...patch };
+    setForm({ ...form, statements });
+  }
+
+  function updatePair(index, patch) {
+    const pairs = [...(form.pairs || [])];
+    pairs[index] = { ...pairs[index], ...patch };
+    setForm({ ...form, pairs });
+  }
+
+  return (
+    <form className="question-form" onSubmit={onSubmit}>
+      <label>
+        Paket Ujian
+        <select value={form.examId} onChange={(event) => setForm({ ...createDefaultQuestion(event.target.value), examId: event.target.value })}>
+          {exams.map((exam) => <option value={exam.id} key={exam.id}>{exam.code} - {exam.subject}</option>)}
+        </select>
+      </label>
+      <div className="inline-fields">
+        <label>
+          Tipe Soal
+          <select value={form.type} onChange={(event) => setForm({ ...normalizeQuestionForForm({ ...form, type: event.target.value }, form.examId), type: event.target.value })}>
+            {QUESTION_TYPES.map((type) => <option value={type.value} key={type.value}>{type.label}</option>)}
+          </select>
+        </label>
+        <label>
+          Bobot
+          <input type="number" min="0.1" step="0.01" value={form.score} onChange={(event) => setForm({ ...form, score: event.target.value })} />
+        </label>
+      </div>
+      <div className="question-body-field">
+        <div className="field-label-row">
+          <span>Soal</span>
+          <ImageUploadField label="Gambar Soal" value={form.image} onChange={(image) => setForm({ ...form, image })} compact buttonText="Upload Gambar Soal" />
+        </div>
+        <textarea value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} placeholder="Tulis pertanyaan..." required />
+        <p className="muted">Semua gambar otomatis dikompres maksimal 500 KB dan disesuaikan untuk layar HP/tablet.</p>
+      </div>
+
+      {["multiple_choice", "multiple_response"].includes(form.type) ? (
+        <div className="dynamic-section">
+          <div className="section-head">
+            <strong>Opsi Jawaban</strong>
+            <button type="button" className="ghost-button" onClick={addOption} disabled={activeOptions.length >= OPTION_KEYS.length}><Plus size={16} /> Tambah Opsi</button>
+          </div>
+          <div className="option-editor-grid">
+            {activeOptions.map((option, index) => (
+              <div className="option-editor compact-option-editor" key={option.key}>
+                <div className="option-editor-head">
+                  <strong>Opsi {option.key}</strong>
+                  <div className="option-head-actions">
+                    <ImageUploadField label={`Gambar Opsi ${option.key}`} value={option.image || ""} onChange={(image) => updateOption(index, { image })} compact buttonText="Gambar" />
+                    {activeOptions.length > 2 ? <button type="button" className="danger-button compact-danger" onClick={() => removeOption(option.key)}><Trash2 size={15} /></button> : null}
+                  </div>
+                </div>
+                <input value={option.text} placeholder={`Teks opsi ${option.key}`} onChange={(event) => updateOption(index, { text: event.target.value })} />
+                {form.type === "multiple_response" ? (
+                  <label className="inline-check">
+                    <input type="checkbox" checked={(form.correctAnswers || []).includes(option.key)} onChange={(event) => toggleCorrectAnswer(option.key, event.target.checked)} />
+                    Jawaban benar
+                  </label>
+                ) : null}
+              </div>
+            ))}
+          </div>
+          {form.type === "multiple_choice" ? (
+            <label>
+              Kunci Jawaban
+              <select value={form.answerKey} onChange={(event) => setForm({ ...form, answerKey: event.target.value })}>
+                {activeOptions.map((option) => <option value={option.key} key={option.key}>{option.key}</option>)}
+              </select>
+            </label>
+          ) : <p className="muted">Nilai checklist dihitung parsial: pilihan benar menambah poin, pilihan salah mengurangi bagian poin.</p>}
+        </div>
+      ) : null}
+
+      {form.type === "true_false" ? (
+        <div className="dynamic-section">
+          <div className="section-head">
+            <strong>Pernyataan Benar / Salah</strong>
+            <button type="button" className="ghost-button" onClick={() => setForm({ ...form, statements: [...form.statements, { id: `st-${Date.now()}`, text: "", image: "", answer: "true" }] })}><Plus size={16} /> Tambah Pernyataan</button>
+          </div>
+          {form.statements.map((statement, index) => (
+            <div className="statement-editor compact-statement-editor" key={statement.id}>
+              <div className="option-editor-head">
+                <strong>Pernyataan {index + 1}</strong>
+                <div className="option-head-actions">
+                  <ImageUploadField label={`Gambar Pernyataan ${index + 1}`} value={statement.image || ""} onChange={(image) => updateStatement(index, { image })} compact buttonText="Gambar" />
+                  {form.statements.length > 1 ? <button type="button" className="danger-button compact-danger" onClick={() => setForm({ ...form, statements: form.statements.filter((item) => item.id !== statement.id) })}><Trash2 size={15} /></button> : null}
+                </div>
+              </div>
+              <textarea value={statement.text} placeholder={`Pernyataan ${index + 1}`} onChange={(event) => updateStatement(index, { text: event.target.value })} />
+              <label>
+                Jawaban
+                <select value={statement.answer} onChange={(event) => updateStatement(index, { answer: event.target.value })}>
+                  <option value="true">Benar</option>
+                  <option value="false">Salah</option>
+                </select>
+              </label>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {form.type === "matching" ? (
+        <div className="dynamic-section">
+          <div className="section-head">
+            <strong>Pasangan Jawaban</strong>
+            <button type="button" className="ghost-button" onClick={() => setForm({ ...form, pairs: [...form.pairs, { id: `pair-${Date.now()}`, left: "", right: "", leftImage: "", rightImage: "" }] })}><Plus size={16} /> Tambah Pasangan</button>
+          </div>
+          {form.pairs.map((pair, index) => (
+            <div className="matching-editor compact-matching-editor" key={pair.id}>
+              <div className="matching-pair-head">
+                <strong>Pasangan {index + 1}</strong>
+                {form.pairs.length > 2 ? <button type="button" className="danger-button compact-danger" onClick={() => setForm({ ...form, pairs: form.pairs.filter((item) => item.id !== pair.id) })}><Trash2 size={15} /></button> : null}
+              </div>
+              <div className="matching-field">
+                <div className="field-label-row">
+                  <span>Kolom Kiri</span>
+                  <ImageUploadField label={`Gambar Kiri ${index + 1}`} value={pair.leftImage || ""} onChange={(image) => updatePair(index, { leftImage: image })} compact buttonText="Gambar" />
+                </div>
+                <input value={pair.left} placeholder="Isi kolom kiri..." onChange={(event) => updatePair(index, { left: event.target.value })} />
+              </div>
+              <div className="matching-field">
+                <div className="field-label-row">
+                  <span>Jawaban Pasangan</span>
+                  <ImageUploadField label={`Gambar Jawaban ${index + 1}`} value={pair.rightImage || ""} onChange={(image) => updatePair(index, { rightImage: image })} compact buttonText="Gambar" />
+                </div>
+                <input value={pair.right} placeholder="Isi jawaban pasangan..." onChange={(event) => updatePair(index, { right: event.target.value })} />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {form.type === "short_answer" ? (
+        <div className="dynamic-section">
+          <div className="section-head">
+            <strong>Jawaban Benar Isian Singkat</strong>
+            <button type="button" className="ghost-button" onClick={() => setForm({ ...form, shortAnswers: [...form.shortAnswers, ""] })}><Plus size={16} /> Tambah Alternatif</button>
+          </div>
+          <p className="muted">Masukkan jawaban benar dan variasi jawaban yang masih dianggap benar. Contoh: `Soekarno`, `Ir. Soekarno`, `Sukarno`.</p>
+          {form.shortAnswers.map((answer, index) => (
+            <label key={index}>
+              Jawaban benar {index + 1}
+              <input value={answer} onChange={(event) => {
+                const shortAnswers = [...form.shortAnswers];
+                shortAnswers[index] = event.target.value;
+                setForm({ ...form, shortAnswers });
+              }} />
+            </label>
+          ))}
+          <div className="check-row">
+            <label><input type="checkbox" checked={!form.answerRules.caseSensitive} onChange={(event) => setForm({ ...form, answerRules: { ...form.answerRules, caseSensitive: !event.target.checked } })} /> Abaikan huruf besar/kecil</label>
+            <label><input type="checkbox" checked={form.answerRules.ignorePunctuation} onChange={(event) => setForm({ ...form, answerRules: { ...form.answerRules, ignorePunctuation: event.target.checked } })} /> Abaikan tanda baca ringan</label>
+            <label><input type="checkbox" checked={form.answerRules.trimSpaces} onChange={(event) => setForm({ ...form, answerRules: { ...form.answerRules, trimSpaces: event.target.checked } })} /> Rapikan spasi otomatis</label>
+          </div>
+        </div>
+      ) : null}
+
+      {form.type === "essay" ? (
+        <div className="info-box">
+          Uraian panjang akan masuk ke status menunggu koreksi. Nilai akhir perlu diperiksa manual oleh guru/admin pada tahap koreksi berikutnya.
+        </div>
+      ) : null}
+
+      <div className="form-actions">
+        <button type="submit">{editingId ? <Save size={18} /> : <Plus size={18} />} {editingId ? "Simpan Perubahan" : "Simpan Soal"}</button>
+        {editingId ? <button type="button" className="ghost-button" onClick={onCancel}>Batal</button> : null}
+      </div>
+    </form>
+  );
+}
+
+function QuestionImage({ src, alt }) {
+  return src ? <img className="question-image" src={src} alt={alt} /> : null;
+}
+
+function QuestionSummary({ question, index, showAnswers = true }) {
+  return (
+    <article>
+      <span>Soal {index + 1} | {questionTypeLabel(question.type)}</span>
+      <p>{question.body}</p>
+      <QuestionImage src={question.image} alt={`Gambar soal ${index + 1}`} />
+      {["multiple_choice", "multiple_response"].includes(question.type) ? (
+        <div className="mini-options">
+          {(question.options || []).map((option) => (
+            <code key={option.key}>
+              {option.key}. {option.text || "[Gambar]"}
+              <QuestionImage src={option.image} alt={`Gambar opsi ${option.key}`} />
+            </code>
+          ))}
+        </div>
+      ) : null}
+      {question.type === "true_false" ? (
+        <div className="mini-options">
+          {(question.statements || []).map((statement, idx) => <code key={statement.id}>{idx + 1}. {statement.text} {showAnswers ? `| ${statement.answer === "true" ? "Benar" : "Salah"}` : ""}</code>)}
+        </div>
+      ) : null}
+      {question.type === "matching" ? (
+        <div className="mini-options">
+          {(question.pairs || []).map((pair, idx) => <code key={pair.id}>{idx + 1}. {pair.left} {showAnswers ? `-> ${pair.right}` : ""}</code>)}
+        </div>
+      ) : null}
+      {showAnswers ? (
+        <code>
+          {question.type === "multiple_choice" ? `Kunci ${question.answerKey}` : null}
+          {question.type === "multiple_response" ? `Kunci ${(question.correctAnswers || []).join(", ")}` : null}
+          {question.type === "short_answer" ? `Jawaban ${question.shortAnswers?.join(" / ")}` : null}
+          {question.type === "essay" ? "Koreksi manual" : null}
+          {" | "}Bobot {question.score}
+        </code>
+      ) : null}
+    </article>
+  );
+}
+
+function formatQuestionKey(question) {
+  if (question.type === "multiple_choice") return question.answerKey || "-";
+  if (question.type === "multiple_response") return (question.correctAnswers || []).join(", ") || "-";
+  if (question.type === "short_answer") return question.shortAnswers?.join(" / ") || "-";
+  if (question.type === "essay") return "Koreksi manual";
+  return "-";
+}
+
+function questionNeedsReview(question) {
+  const hasPlaceholder = JSON.stringify(question).toLowerCase().includes("perlu dicek");
+  if (hasPlaceholder) return true;
+  if (["multiple_choice", "multiple_response"].includes(question.type) && (question.options || []).length < 2) return true;
+  if (question.type === "multiple_choice" && !question.answerKey) return true;
+  if (question.type === "multiple_response" && !(question.correctAnswers || []).length) return true;
+  return false;
+}
+
+function QuestionCompactSummary({ question, index }) {
+  const needsReview = questionNeedsReview(question);
+  return (
+    <article className="question-compact">
+      <div className="question-compact-meta">
+        <strong>Soal {index + 1}</strong>
+        <span>{questionTypeLabel(question.type)}</span>
+        <span>Bobot {question.score}</span>
+        <span>Kunci {formatQuestionKey(question)}</span>
+        {needsReview ? <span className="status-pill revision">Perlu Dicek</span> : <span className="status-pill selected">Lengkap</span>}
+      </div>
+      <p>{question.body}</p>
+      {question.image ? <QuestionImage src={question.image} alt={`Gambar soal ${index + 1}`} /> : null}
+    </article>
+  );
+}
+
+function normalizeSimulationAnswer(value, rules = {}) {
+  let text = String(value || "");
+  if (rules.trimSpaces !== false) text = text.trim().replace(/\s+/g, " ");
+  if (rules.ignorePunctuation !== false) text = text.replace(/[^\p{L}\p{N}\s]/gu, "");
+  else text = text.replace(/,/g, ".");
+  if (!rules.caseSensitive) text = text.toLowerCase();
+  return text;
+}
+
+function roundScore(value) {
+  return Math.round(Number(value || 0) * 100) / 100;
+}
+
+function scoreSimulationQuestion(question, answer) {
+  const score = Number(question.score || 1);
+  if (question.type === "essay") return { earned: 0, total: score, manualPending: true };
+
+  if (question.type === "short_answer") {
+    const rules = question.answerRules || {};
+    const expected = (question.shortAnswers || []).map((item) => normalizeSimulationAnswer(item, rules)).filter(Boolean);
+    const actual = normalizeSimulationAnswer(answer, rules);
+    return { earned: actual && expected.includes(actual) ? score : 0, total: score, manualPending: false };
+  }
+
+  if (question.type === "multiple_response") {
+    const selected = new Set(Array.isArray(answer) ? answer : []);
+    const correct = new Set(question.correctAnswers || []);
+    if (!correct.size) return { earned: 0, total: score, manualPending: false };
+    const correctSelected = [...selected].filter((key) => correct.has(key)).length;
+    const wrongSelected = [...selected].filter((key) => !correct.has(key)).length;
+    const ratio = Math.max(0, correctSelected - wrongSelected) / correct.size;
+    return { earned: score * ratio, total: score, manualPending: false };
+  }
+
+  if (question.type === "true_false") {
+    const statements = question.statements || [];
+    if (!statements.length) return { earned: 0, total: score, manualPending: false };
+    const correct = statements.filter((statement) => String(answer?.[statement.id] || "") === String(statement.answer || "")).length;
+    return { earned: score * (correct / statements.length), total: score, manualPending: false };
+  }
+
+  if (question.type === "matching") {
+    const pairs = question.pairs || [];
+    if (!pairs.length) return { earned: 0, total: score, manualPending: false };
+    const correct = pairs.filter((pair) => String(answer?.[pair.id] || "") === String(pair.right || "")).length;
+    return { earned: score * (correct / pairs.length), total: score, manualPending: false };
+  }
+
+  return { earned: answer === question.answerKey ? score : 0, total: score, manualPending: false };
+}
+
+function calculateSimulationScore(questions, answers) {
+  const parts = questions.map((question) => scoreSimulationQuestion(question, answers[question.id]));
+  const earnedScore = roundScore(parts.reduce((sum, part) => sum + part.earned, 0));
+  const totalScore = roundScore(parts.reduce((sum, part) => sum + part.total, 0));
+  const manualPendingScore = roundScore(parts.filter((part) => part.manualPending).reduce((sum, part) => sum + part.total, 0));
+  const percent = totalScore ? Math.round((earnedScore / totalScore) * 10000) / 100 : 0;
+  return { earnedScore, totalScore, percent, manualPending: manualPendingScore > 0, manualPendingScore, parts };
+}
+
+function questionQualityIssues(question) {
+  const issues = [];
+  if (!String(question.body || "").trim()) issues.push("soal kosong");
+  if (JSON.stringify(question).toLowerCase().includes("perlu dicek")) issues.push("ada teks perlu dicek");
+  if (!Number(question.score || 0)) issues.push("bobot kosong/0");
+  if (["multiple_choice", "multiple_response"].includes(question.type) && (question.options || []).length < 2) issues.push("opsi kurang dari 2");
+  if (question.type === "multiple_choice" && !question.answerKey) issues.push("kunci kosong");
+  if (question.type === "multiple_choice" && question.answerKey && !(question.options || []).some((option) => option.key === question.answerKey)) issues.push("kunci tidak ada di opsi");
+  if (question.type === "multiple_response" && !(question.correctAnswers || []).length) issues.push("kunci checklist kosong");
+  if (question.type === "true_false" && !(question.statements || []).length) issues.push("pernyataan kosong");
+  if (question.type === "matching" && (question.pairs || []).length < 2) issues.push("pasangan kurang dari 2");
+  if (question.type === "short_answer" && !(question.shortAnswers || []).length) issues.push("jawaban isian kosong");
+  return issues;
+}
+
 function TeacherDashboard({ exams, questions, onQuestionCreated }) {
   const firstExam = exams[0];
-  const emptyQuestion = {
-    examId: firstExam?.id || "",
-    body: "",
-    answerKey: "A",
-    score: 1,
-    options: [
-      { key: "A", text: "" },
-      { key: "B", text: "" },
-      { key: "C", text: "" },
-      { key: "D", text: "" },
-      { key: "E", text: "" }
-    ]
-  };
-  const [form, setForm] = useState(emptyQuestion);
+  const [form, setForm] = useState(createDefaultQuestion(firstExam?.id || ""));
   const [editingId, setEditingId] = useState("");
   const [notice, setNotice] = useState("");
   const [importPreview, setImportPreview] = useState([]);
+  const [questionModalOpen, setQuestionModalOpen] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [viewMode, setViewMode] = useState("compact");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   useEffect(() => {
     if (firstExam && !form.examId) {
@@ -947,39 +2734,56 @@ function TeacherDashboard({ exams, questions, onQuestionCreated }) {
     }
   }, [firstExam, form.examId]);
 
-  const selectedExamQuestions = questions.filter((question) => question.examId === form.examId);
+  const selectedExam = exams.find((exam) => exam.id === form.examId) || firstExam;
+  const selectedExamId = selectedExam?.id || "";
+  const selectedExamQuestions = questions.filter((question) => question.examId === selectedExamId);
+  const filteredQuestions = selectedExamQuestions.filter((question) => {
+    const haystack = `${question.body} ${questionTypeLabel(question.type)} ${formatQuestionKey(question)}`.toLowerCase();
+    return haystack.includes(query.toLowerCase());
+  });
+  const pagedQuestions = getPageItems(filteredQuestions, page, pageSize);
+
+  useEffect(() => {
+    setPage(1);
+  }, [selectedExamId, query, viewMode, pageSize]);
+
+  function selectExam(examId) {
+    setQuery("");
+    setImportPreview([]);
+    setNotice("");
+    resetForm(examId);
+  }
 
   function resetForm(nextExamId = form.examId) {
     setEditingId("");
-    setForm({
-      ...emptyQuestion,
-      examId: nextExamId,
-      options: emptyQuestion.options.map((option) => ({ ...option }))
-    });
+    setForm(createDefaultQuestion(nextExamId));
+  }
+
+  function openAddQuestion() {
+    resetForm(selectedExamId);
+    setQuestionModalOpen(true);
+    setNotice("");
   }
 
   function edit(question) {
     setEditingId(question.id);
-    setForm({
-      examId: question.examId,
-      body: question.body,
-      answerKey: question.answerKey,
-      score: question.score,
-      options: question.options.map((option) => ({ ...option }))
-    });
+    setForm(normalizeQuestionForForm(question, selectedExamId));
+    setQuestionModalOpen(true);
     setNotice("");
   }
 
   async function submit(event) {
     event.preventDefault();
+    const payload = cleanQuestionForSubmit(form);
     if (editingId) {
-      await api(`/questions/${editingId}`, { method: "PUT", body: JSON.stringify(form) });
+      await api(`/questions/${editingId}`, { method: "PUT", body: JSON.stringify(payload) });
       setNotice("Soal berhasil diperbarui.");
     } else {
-      await api("/questions", { method: "POST", body: JSON.stringify(form) });
+      await api("/questions", { method: "POST", body: JSON.stringify(payload) });
       setNotice("Soal berhasil ditambahkan.");
     }
     resetForm(form.examId);
+    setQuestionModalOpen(false);
     onQuestionCreated();
   }
 
@@ -994,18 +2798,22 @@ function TeacherDashboard({ exams, questions, onQuestionCreated }) {
 
   async function importFile(event) {
     const file = event.target.files?.[0];
-    if (!file || !form.examId) return;
+    if (!file || !selectedExamId) return;
     const lowerName = file.name.toLowerCase();
-    let text = "";
-    if (lowerName.endsWith(".txt")) {
-      text = await file.text();
+    let parsed = [];
+    if (lowerName.endsWith(".csv")) {
+      parsed = parseQuestionRows(parseCsv(await file.text()), selectedExamId);
+    } else if (lowerName.endsWith(".xlsx")) {
+      parsed = parseQuestionRows(rowsToObjects(await readXlsxFile(file)), selectedExamId);
+    } else if (lowerName.endsWith(".txt")) {
+      parsed = parseQuestionText(await file.text(), selectedExamId);
     } else {
       const { default: mammoth } = await import("mammoth/mammoth.browser");
-      text = (await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() })).value;
+      const text = (await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() })).value;
+      parsed = parseQuestionText(text, selectedExamId);
     }
-    const parsed = parseQuestionText(text, form.examId);
     setImportPreview(parsed);
-    setNotice(parsed.length ? `${parsed.length} soal terdeteksi dan siap disimpan.` : "Belum ada soal valid yang terbaca. Cek format nomor, opsi, dan kunci.");
+    setNotice(parsed.length ? `${parsed.length} soal terdeteksi dan siap disimpan.` : "Belum ada soal valid yang terbaca. Cek format nomor, opsi, dan kunci/header.");
     event.target.value = "";
   }
 
@@ -1013,133 +2821,619 @@ function TeacherDashboard({ exams, questions, onQuestionCreated }) {
     if (!importPreview.length) return;
     const result = await api("/questions/bulk", {
       method: "POST",
-      body: JSON.stringify({ examId: form.examId, questions: importPreview })
+      body: JSON.stringify({ examId: selectedExamId, questions: importPreview })
     });
     setNotice(`Import tersimpan: ${result.created} soal, ${result.skipped} dilewati.`);
     setImportPreview([]);
+    setImportModalOpen(false);
     onQuestionCreated();
   }
 
   return (
-    <div className="content-grid">
+    <div className="page-stack">
       <section className="panel">
-        <PanelTitle icon={BookOpen} title={editingId ? "Edit Soal" : "Input Soal Langsung"} />
-        <form className="question-form" onSubmit={submit}>
-          <label>
-            Paket Ujian
-            <select
-              value={form.examId}
-              onChange={(event) => {
-                resetForm(event.target.value);
-                setImportPreview([]);
-              }}
-            >
-              {exams.map((exam) => <option value={exam.id} key={exam.id}>{exam.code} - {exam.subject}</option>)}
-            </select>
-          </label>
-          <label>
-            Soal
-            <textarea value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} placeholder="Tulis pertanyaan..." required />
-          </label>
-          <div className="option-grid">
-            {form.options.map((option, index) => (
-              <label key={option.key}>
-                Opsi {option.key}
-                <input
-                  value={option.text}
-                  onChange={(event) => {
-                    const options = [...form.options];
-                    options[index] = { ...option, text: event.target.value };
-                    setForm({ ...form, options });
-                  }}
-                  required
-                />
-              </label>
-            ))}
-          </div>
-          <div className="inline-fields">
-            <label>
-              Kunci
-              <select value={form.answerKey} onChange={(event) => setForm({ ...form, answerKey: event.target.value })}>
-                {form.options.map((option) => <option value={option.key} key={option.key}>{option.key}</option>)}
+        <div className="panel-toolbar bank-toolbar">
+          <div className="toolbar-actions bank-actions">
+            <label className="mode-select">
+              <select value={viewMode} onChange={(event) => setViewMode(event.target.value)}>
+                <option value="compact">Mode Ringkas</option>
+                <option value="full">Soal Lengkap</option>
               </select>
             </label>
-            <label>
-              Bobot
-              <input type="number" min="1" value={form.score} onChange={(event) => setForm({ ...form, score: event.target.value })} />
+            <label className="search-box">
+              <Search size={17} />
+              <input placeholder="Cari soal..." value={query} onChange={(event) => setQuery(event.target.value)} />
+            </label>
+            <button type="button" onClick={openAddQuestion}><Plus size={18} /> Tambah Soal</button>
+            <button type="button" className="ghost-button" onClick={() => { setImportPreview([]); setImportModalOpen(true); }}><Upload size={18} /> Import Soal</button>
+            <label className="exam-select-compact">
+              <select value={selectedExamId} onChange={(event) => selectExam(event.target.value)} disabled={!exams.length}>
+                {exams.map((exam) => <option value={exam.id} key={exam.id}>Soal {exam.code} - {exam.subject}</option>)}
+              </select>
             </label>
           </div>
-          <div className="form-actions">
-            <button type="submit">{editingId ? <Save size={18} /> : <Plus size={18} />} {editingId ? "Simpan Perubahan" : "Simpan Soal"}</button>
-            {editingId ? <button type="button" className="ghost-button" onClick={() => resetForm(form.examId)}>Batal</button> : null}
-          </div>
-        </form>
-        <div className="import-box">
-          <strong>Import Soal Word/Teks</strong>
-          <p>Format: `1. Pertanyaan`, `A. Opsi`, `B. Opsi`, sampai opsi terakhir, lalu `Kunci: C`. File `.docx`, `.docm`, dan `.txt` didukung.</p>
-          <label className="file-button">
-            <Upload size={18} />
-            Pilih File Soal
-            <input type="file" accept=".docx,.docm,.txt" onChange={importFile} />
-          </label>
-          {importPreview.length ? (
-            <div className="import-preview">
-              <strong>{importPreview.length} soal siap diimport</strong>
-              <button type="button" onClick={saveImportedQuestions}><Save size={18} /> Simpan Hasil Import</button>
-            </div>
-          ) : null}
         </div>
         {notice ? <div className={notice.includes("dilewati") || notice.includes("Belum") ? "error-box" : "success-box"}>{notice}</div> : null}
-      </section>
-      <section className="panel">
-        <PanelTitle icon={ClipboardList} title={`Bank Soal (${selectedExamQuestions.length})`} />
+        {!exams.length ? <div className="info-box">Belum ada paket ujian yang ditugaskan ke akun guru ini.</div> : null}
+        {exams.length && !selectedExamQuestions.length ? (
+          <div className="empty-state">
+            <BookOpen size={34} />
+            <strong>Soal masih kosong.</strong>
+            <p>Klik Tambah Soal untuk membuat soal manual, atau Import Soal untuk upload dari Word/CSV.</p>
+          </div>
+        ) : null}
+        {selectedExamQuestions.length && !filteredQuestions.length ? (
+          <div className="empty-state">
+            <Search size={34} />
+            <strong>Soal tidak ditemukan.</strong>
+            <p>Coba gunakan kata kunci lain.</p>
+          </div>
+        ) : null}
+        {filteredQuestions.length ? (
+          <PaginationControls
+            page={pagedQuestions.currentPage}
+            pageSize={pageSize}
+            total={filteredQuestions.length}
+            pageSizeOptions={[5, 10, 15, 20]}
+            itemLabel="soal"
+            compact
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+          />
+        ) : null}
         <div className="question-list">
-          {selectedExamQuestions.map((question, index) => (
-            <article key={question.id}>
-              <span>Soal {index + 1}</span>
-              <p>{question.body}</p>
-              <div className="mini-options">
-                {question.options.map((option) => <code key={option.key}>{option.key}. {option.text}</code>)}
-              </div>
-              <code>Kunci {question.answerKey} | Bobot {question.score}</code>
+          {pagedQuestions.items.map((question) => (
+            <div className={`question-summary-card ${viewMode === "compact" ? "compact-summary-card" : "full-summary-card"}`} key={question.id}>
+              {viewMode === "compact"
+                ? <QuestionCompactSummary question={question} index={selectedExamQuestions.indexOf(question)} />
+                : <QuestionSummary question={question} index={selectedExamQuestions.indexOf(question)} />}
               <div className="row-actions">
                 <button type="button" className="small-button" onClick={() => edit(question)}>Edit</button>
                 <button type="button" className="danger-button" onClick={() => remove(question)}><Trash2 size={15} /></button>
               </div>
-            </article>
+            </div>
           ))}
-          {selectedExamQuestions.length ? null : <p className="muted">Belum ada soal untuk paket ujian ini.</p>}
         </div>
+        {filteredQuestions.length ? (
+          <PaginationControls
+            page={pagedQuestions.currentPage}
+            pageSize={pageSize}
+            total={filteredQuestions.length}
+            pageSizeOptions={[5, 10, 15, 20]}
+            itemLabel="soal"
+            compact
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+          />
+        ) : null}
       </section>
+
+      {questionModalOpen ? (
+        <Modal title={editingId ? "Edit Soal" : "Tambah Soal"} icon={BookOpen} onClose={() => { resetForm(selectedExamId); setQuestionModalOpen(false); }} wide>
+          <QuestionEditor
+            form={form}
+            setForm={setForm}
+            exams={exams}
+            onSubmit={submit}
+            editingId={editingId}
+            onCancel={() => { resetForm(selectedExamId); setQuestionModalOpen(false); }}
+          />
+        </Modal>
+      ) : null}
+
+      {importModalOpen ? (
+        <Modal title="Import Soal Word/Teks/Excel/CSV" icon={Upload} onClose={() => { setImportPreview([]); setImportModalOpen(false); }} wide>
+          <div className="import-box import-box-modal">
+            <p>Format utama Word/Teks: gunakan penanda `[TIPE: PG]` atau `[TIPE: CHECKLIST]`, lalu `Soal:`, opsi `A.` sampai opsi terakhir, `Kunci:`, dan `Bobot:`.</p>
+            <pre className="word-format-sample">{`[TIPE: PG]
+Soal:
+Apa yang dimaksud dengan literasi digital?
+
+A. Kemampuan membaca dan menulis di perangkat digital.
+B. Kemampuan menggunakan internet untuk belanja online.
+C. Kemampuan memahami dan menggunakan informasi digital secara efektif.
+D. Kemampuan mengunduh aplikasi dari internet.
+E. Kemampuan bermain game online.
+
+Kunci: C
+Bobot: 2.5
+
+[TIPE: CHECKLIST]
+Soal:
+Manakah pernyataan yang benar tentang keamanan digital?
+
+A. Password sebaiknya dibuat berbeda untuk setiap akun.
+B. OTP boleh dibagikan kepada teman dekat.
+C. Verifikasi dua langkah dapat meningkatkan keamanan akun.
+D. Link mencurigakan sebaiknya langsung dibuka tanpa dicek.
+E. Data pribadi sebaiknya tidak disebarkan sembarangan.
+
+Kunci: A, C, E
+Bobot: 3`}</pre>
+            <p>Excel/CSV: gunakan header `tipe`, `soal`, `opsi_a`, `opsi_b`, `opsi_c`, `opsi_d`, `opsi_e`, `kunci`, `bobot`. Isi `tipe` dengan `PG` atau `CHECKLIST`.</p>
+            <div className="sample-table question-sample-table">
+              <div>tipe</div><div>soal</div><div>opsi_a</div><div>opsi_b</div><div>opsi_c</div><div>opsi_d</div><div>opsi_e</div><div>kunci</div><div>bobot</div>
+              <div>PG</div><div>Apa itu literasi digital?</div><div>Membaca perangkat digital</div><div>Belanja online</div><div>Menggunakan informasi digital efektif</div><div>Mengunduh aplikasi</div><div>Bermain game</div><div>C</div><div>2.5</div>
+              <div>CHECKLIST</div><div>Pernyataan keamanan digital yang benar?</div><div>Password berbeda</div><div>OTP boleh dibagikan</div><div>Verifikasi dua langkah</div><div>Link mencurigakan dibuka</div><div>Data pribadi dijaga</div><div>A,C,E</div><div>3</div>
+            </div>
+            <div className="template-actions">
+              <button type="button" className="ghost-button" onClick={downloadQuestionWordTemplate}><Download size={18} /> Download Template Word</button>
+              <button type="button" className="ghost-button" onClick={downloadQuestionTemplate}><Download size={18} /> Download Contoh CSV</button>
+            </div>
+            <label className="file-button">
+              <Upload size={18} />
+              Pilih File Soal
+              <input type="file" accept=".docx,.docm,.txt,.xlsx,.csv" onChange={importFile} />
+            </label>
+            {importPreview.length ? (
+              <div className="import-preview">
+                <strong>{importPreview.length} soal siap diimport</strong>
+                <button type="button" onClick={saveImportedQuestions}><Save size={18} /> Simpan Hasil Import</button>
+              </div>
+            ) : null}
+          </div>
+        </Modal>
+      ) : null}
     </div>
   );
 }
 
+function TeacherQuestionTest({ exams, questions }) {
+  const firstExam = exams[0];
+  const [selectedExamId, setSelectedExamId] = useState(firstExam?.id || "");
+  const [deviceMode, setDeviceMode] = useState("phone");
+  const [answers, setAnswers] = useState({});
+  const [submitted, setSubmitted] = useState(false);
+
+  useEffect(() => {
+    if (!selectedExamId && firstExam) setSelectedExamId(firstExam.id);
+  }, [firstExam, selectedExamId]);
+
+  const selectedExam = exams.find((exam) => exam.id === selectedExamId);
+  const selectedQuestions = questions.filter((question) => question.examId === selectedExamId);
+  const score = submitted ? calculateSimulationScore(selectedQuestions, answers) : null;
+  const issueRows = selectedQuestions
+    .map((question, index) => ({ index, question, issues: questionQualityIssues(question) }))
+    .filter((item) => item.issues.length);
+
+  function selectExam(examId) {
+    setSelectedExamId(examId);
+    setAnswers({});
+    setSubmitted(false);
+  }
+
+  function choose(questionId, value) {
+    setAnswers((current) => ({ ...current, [questionId]: value }));
+    if (submitted) setSubmitted(false);
+  }
+
+  function toggleMulti(questionId, key, checked) {
+    const current = new Set(Array.isArray(answers[questionId]) ? answers[questionId] : []);
+    if (checked) current.add(key);
+    else current.delete(key);
+    choose(questionId, [...current]);
+  }
+
+  function chooseNested(questionId, itemId, value) {
+    choose(questionId, { ...(answers[questionId] || {}), [itemId]: value });
+  }
+
+  function resetSimulation() {
+    setAnswers({});
+    setSubmitted(false);
+  }
+
+  return (
+    <div className="page-stack">
+      <section className="panel test-toolbar">
+        <div className="toolbar-actions test-controls">
+          <select value={selectedExamId} onChange={(event) => selectExam(event.target.value)} disabled={!exams.length}>
+            {exams.map((exam) => <option value={exam.id} key={exam.id}>Soal {exam.code} - {exam.subject}</option>)}
+          </select>
+          <div className="segmented-control" aria-label="Mode perangkat">
+            {[
+              ["phone", "HP"],
+              ["tablet", "Tablet"],
+              ["laptop", "Laptop"]
+            ].map(([value, label]) => (
+              <button type="button" className={deviceMode === value ? "active" : ""} onClick={() => setDeviceMode(value)} key={value}>{label}</button>
+            ))}
+          </div>
+          <button type="button" className="ghost-button" onClick={resetSimulation}>Reset Jawaban</button>
+          <button type="button" onClick={() => setSubmitted(true)} disabled={!selectedQuestions.length}><CheckCircle2 size={18} /> Lihat Nilai Simulasi</button>
+        </div>
+        {selectedExam ? <p className="muted">{selectedQuestions.length} soal | Simulasi tidak memengaruhi nilai siswa dan tidak membutuhkan token/jadwal.</p> : <div className="info-box">Belum ada paket ujian yang ditugaskan ke akun guru ini.</div>}
+      </section>
+
+      {score ? (
+        <section className="panel simulation-score">
+          <div>
+            <span className="field-caption">Nilai Simulasi</span>
+            <strong>{score.percent}</strong>
+            <p>{score.earnedScore} dari {score.totalScore} poin{score.manualPending ? `, ${score.manualPendingScore} poin esai menunggu koreksi manual` : ""}.</p>
+          </div>
+          <div className="simulation-score-grid">
+            <code>{Object.keys(answers).length}/{selectedQuestions.length} terjawab</code>
+            <code>{issueRows.length} soal perlu dicek</code>
+          </div>
+        </section>
+      ) : null}
+
+      {issueRows.length ? (
+        <section className="panel issue-panel">
+          <PanelTitle icon={AlertTriangle} title="Catatan Pemeriksaan Soal" />
+          <div className="issue-list">
+            {issueRows.map((item) => (
+              <div key={item.question.id}>
+                <strong>Soal {item.index + 1}</strong>
+                <span>{item.issues.join(", ")}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {selectedExam && !selectedQuestions.length ? (
+        <div className="empty-state">
+          <BookOpen size={34} />
+          <strong>Soal masih kosong.</strong>
+          <p>Tambahkan soal di menu Bank Soal terlebih dahulu.</p>
+        </div>
+      ) : null}
+
+      {selectedQuestions.length ? (
+        <section className="simulation-stage">
+          <div className={`simulation-device ${deviceMode}`}>
+            <div className="simulation-device-head">
+              <strong>{selectedExam?.subject}</strong>
+              <span>{deviceMode === "phone" ? "Preview HP" : deviceMode === "tablet" ? "Preview Tablet" : "Preview Laptop"}</span>
+            </div>
+            <div className="simulation-paper">
+              {selectedQuestions.map((question, index) => (
+                <article className="question-item simulation-question" key={question.id}>
+                  <strong>Soal {index + 1} | {questionTypeLabel(question.type)}</strong>
+                  <p>{question.body}</p>
+                  <QuestionImage src={question.image} alt={`Gambar soal ${index + 1}`} />
+                  {question.type === "multiple_response" ? (
+                    <div className="answer-options">
+                      {(question.options || []).map((option) => (
+                        <label className="answer-option" key={option.key}>
+                          <input
+                            type="checkbox"
+                            checked={Array.isArray(answers[question.id]) && answers[question.id].includes(option.key)}
+                            onChange={(event) => toggleMulti(question.id, option.key, event.target.checked)}
+                          />
+                          <span>{option.key}</span>
+                          <div>{option.text}<QuestionImage src={option.image} alt={`Gambar opsi ${option.key}`} /></div>
+                        </label>
+                      ))}
+                    </div>
+                  ) : null}
+                  {(!question.type || question.type === "multiple_choice") ? (
+                    <div className="answer-options">
+                      {(question.options || []).map((option) => (
+                        <label className="answer-option" key={option.key}>
+                          <input
+                            type="radio"
+                            name={`test-${question.id}`}
+                            checked={answers[question.id] === option.key}
+                            onChange={() => choose(question.id, option.key)}
+                          />
+                          <span>{option.key}</span>
+                          <div>{option.text}<QuestionImage src={option.image} alt={`Gambar opsi ${option.key}`} /></div>
+                        </label>
+                      ))}
+                    </div>
+                  ) : null}
+                  {question.type === "true_false" ? (
+                    <div className="statement-answer-list">
+                      {(question.statements || []).map((statement, statementIndex) => (
+                        <div className="statement-answer" key={statement.id}>
+                          <p>{statementIndex + 1}. {statement.text}</p>
+                          <QuestionImage src={statement.image} alt={`Gambar pernyataan ${statementIndex + 1}`} />
+                          <div className="row-actions">
+                            <label><input type="radio" name={`test-${question.id}-${statement.id}`} checked={answers[question.id]?.[statement.id] === "true"} onChange={() => chooseNested(question.id, statement.id, "true")} /> Benar</label>
+                            <label><input type="radio" name={`test-${question.id}-${statement.id}`} checked={answers[question.id]?.[statement.id] === "false"} onChange={() => chooseNested(question.id, statement.id, "false")} /> Salah</label>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  {question.type === "matching" ? (
+                    <div className="matching-answer-list">
+                      {(question.pairs || []).map((pair, pairIndex) => {
+                        const options = question.matchingOptions || (question.pairs || []).map((item) => ({ value: item.right, image: item.rightImage || "" }));
+                        return (
+                          <label className="matching-answer" key={pair.id}>
+                            <span>{pairIndex + 1}. {pair.left}</span>
+                            <QuestionImage src={pair.leftImage} alt={`Gambar pasangan ${pairIndex + 1}`} />
+                            <select value={answers[question.id]?.[pair.id] || ""} onChange={(event) => chooseNested(question.id, pair.id, event.target.value)}>
+                              <option value="">Pilih pasangan...</option>
+                              {options.map((option) => <option value={option.value} key={option.value}>{option.value}</option>)}
+                            </select>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                  {question.type === "short_answer" ? (
+                    <input
+                      className="short-answer-input"
+                      value={answers[question.id] || ""}
+                      placeholder="Tulis jawaban singkat..."
+                      onChange={(event) => choose(question.id, event.target.value)}
+                    />
+                  ) : null}
+                  {question.type === "essay" ? (
+                    <textarea
+                      className="essay-answer-input"
+                      value={answers[question.id] || ""}
+                      placeholder="Tulis jawaban uraian..."
+                      onChange={(event) => choose(question.id, event.target.value)}
+                    />
+                  ) : null}
+                  {submitted ? (
+                    <code>Skor soal: {roundScore(scoreSimulationQuestion(question, answers[question.id]).earned)} / {Number(question.score || 1)}</code>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+function isQuestionAnswered(question, answer) {
+  if (question.type === "multiple_response") return Array.isArray(answer) && answer.length > 0;
+  if (question.type === "true_false") {
+    const statements = question.statements || [];
+    return statements.length > 0 && statements.every((statement) => answer?.[statement.id] === "true" || answer?.[statement.id] === "false");
+  }
+  if (question.type === "matching") {
+    const pairs = question.pairs || [];
+    return pairs.length > 0 && pairs.every((pair) => String(answer?.[pair.id] || "").trim());
+  }
+  return String(answer ?? "").trim().length > 0;
+}
+
 function ExamTaking({ session, onFinished }) {
+  const [currentQuestions, setCurrentQuestions] = useState(session.questions || []);
   const [answers, setAnswers] = useState(session.attempt.answers || {});
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [numberModalOpen, setNumberModalOpen] = useState(false);
+  const [fontModalOpen, setFontModalOpen] = useState(false);
+  const [questionFontSize, setQuestionFontSize] = useState(() => {
+    try {
+      return localStorage.getItem(EXAM_FONT_SIZE_KEY) || "normal";
+    } catch {
+      return "normal";
+    }
+  });
+  const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [reloadNotice, setReloadNotice] = useState("");
   const [submittedAttempt, setSubmittedAttempt] = useState(null);
+  const questionCardRef = useRef(null);
+  const eventLogRef = useRef({});
+  const [remainingMs, setRemainingMs] = useState(() => {
+    if (Number.isFinite(session.availability?.remainingMs)) return session.availability.remainingMs;
+    if (session.availability?.endAt && session.availability?.serverTime) {
+      return Math.max(0, new Date(session.availability.endAt).getTime() - new Date(session.availability.serverTime).getTime());
+    }
+    return Number(session.exam.durationMinutes || 90) * 60 * 1000;
+  });
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setRemainingMs((current) => Math.max(0, current - 1000));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (remainingMs > 0 || submittedAttempt) return;
+    submit();
+  }, [remainingMs, submittedAttempt]);
+
+  useEffect(() => {
+    const warnBeforeExit = (event) => {
+      event.preventDefault();
+      event.returnValue = "Ujian sedang berlangsung. Tetap di halaman ujian sampai selesai.";
+      return event.returnValue;
+    };
+    window.addEventListener("beforeunload", warnBeforeExit);
+    return () => window.removeEventListener("beforeunload", warnBeforeExit);
+  }, []);
+
+  async function logExamEvent(type, message, level = "warning") {
+    const now = Date.now();
+    if (eventLogRef.current[type] && now - eventLogRef.current[type] < 8000) return;
+    eventLogRef.current[type] = now;
+    try {
+      await api(`/attempts/${session.attempt.id}/heartbeat`, {
+        method: "POST",
+        body: JSON.stringify({ event: type, level, message })
+      });
+    } catch {
+      // Event log should never interrupt the exam flow.
+    }
+  }
+
+  useEffect(() => {
+    const blockEvent = (event) => {
+      event.preventDefault();
+      const type = event.type === "contextmenu" ? "context_menu_blocked" : `${event.type}_blocked`;
+      logExamEvent(type, "Aksi klik kanan/seleksi/copy-paste diblokir pada halaman ujian.");
+    };
+    const handleVisibility = () => {
+      if (document.hidden) logExamEvent("visibility_hidden", "Halaman ujian tidak terlihat atau aplikasi berpindah.", "warning");
+      else logExamEvent("visibility_visible", "Peserta kembali ke halaman ujian.", "info");
+    };
+    const handleBlur = () => logExamEvent("window_blur", "Jendela/browser ujian kehilangan fokus.", "warning");
+
+    const blockedEvents = ["contextmenu", "copy", "cut", "paste", "dragstart", "selectstart"];
+    blockedEvents.forEach((eventName) => document.addEventListener(eventName, blockEvent));
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("blur", handleBlur);
+    logExamEvent("exam_screen_opened", "Halaman pengerjaan ujian dibuka atau dilanjutkan.", "info");
+
+    return () => {
+      blockedEvents.forEach((eventName) => document.removeEventListener(eventName, blockEvent));
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, []);
+
+  function resetExamScroll() {
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    if (questionCardRef.current) questionCardRef.current.scrollTop = 0;
+  }
+
+  useEffect(() => {
+    const previousRestoration = window.history.scrollRestoration;
+    if ("scrollRestoration" in window.history) window.history.scrollRestoration = "manual";
+    document.documentElement.classList.add("exam-taking-active");
+    document.body.classList.add("exam-taking-active");
+    resetExamScroll();
+    const firstFrame = window.requestAnimationFrame(resetExamScroll);
+    const secondFrame = window.setTimeout(resetExamScroll, 120);
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      window.clearTimeout(secondFrame);
+      document.documentElement.classList.remove("exam-taking-active");
+      document.body.classList.remove("exam-taking-active");
+      if ("scrollRestoration" in window.history) window.history.scrollRestoration = previousRestoration || "auto";
+    };
+  }, []);
+
+  useEffect(() => {
+    resetExamScroll();
+  }, [currentIndex]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(EXAM_FONT_SIZE_KEY, questionFontSize);
+    } catch {
+      // Font preference is helpful, but the exam should keep running if storage is blocked.
+    }
+  }, [questionFontSize]);
+
+  const questionFontOptions = [
+    {
+      value: "xsmall",
+      label: "Sangat Kecil",
+      description: "Paling rapat untuk layar kecil atau soal yang panjang.",
+      sample: "Teks soal sangat kecil."
+    },
+    {
+      value: "small",
+      label: "Kecil",
+      description: "Tampilan lebih rapat untuk layar yang terbatas.",
+      sample: "Teks soal ukuran kecil."
+    },
+    {
+      value: "normal",
+      label: "Sedang",
+      description: "Ukuran standar yang nyaman untuk sebagian besar peserta.",
+      sample: "Teks soal ukuran sedang."
+    },
+    {
+      value: "large",
+      label: "Besar",
+      description: "Membantu peserta yang butuh tulisan lebih jelas.",
+      sample: "Teks soal ukuran besar."
+    },
+    {
+      value: "xlarge",
+      label: "Paling Besar",
+      description: "Ukuran paling jelas, cocok untuk peserta yang kesulitan membaca.",
+      sample: "Teks soal paling besar."
+    }
+  ];
+  const currentQuestion = currentQuestions[currentIndex];
+  const answeredCount = currentQuestions.filter((question) => isQuestionAnswered(question, answers[question.id])).length;
+  const submitUnlockMinutes = Number(session.exam.submitUnlockMinutes ?? 30);
+  const submitUnlockMs = Math.max(0, submitUnlockMinutes) * 60 * 1000;
+  const canSubmitNow = remainingMs <= submitUnlockMs || remainingMs <= 0;
+  const submitLockedText = `Submit tersedia ${submitUnlockMinutes} menit terakhir`;
+  const unansweredCount = Math.max(0, currentQuestions.length - answeredCount);
 
   async function choose(questionId, value) {
     const next = { ...answers, [questionId]: value };
     setAnswers(next);
     setSaving(true);
-    await api(`/attempts/${session.attempt.id}/answers`, { method: "PUT", body: JSON.stringify({ answers: next }) });
-    setSaving(false);
+    try {
+      await api(`/attempts/${session.attempt.id}/answers`, { method: "PUT", body: JSON.stringify({ answers: next }) });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function toggleMulti(questionId, key, checked) {
+    const current = new Set(Array.isArray(answers[questionId]) ? answers[questionId] : []);
+    if (checked) current.add(key);
+    else current.delete(key);
+    choose(questionId, [...current]);
+  }
+
+  function chooseNested(questionId, itemId, value) {
+    choose(questionId, { ...(answers[questionId] || {}), [itemId]: value });
   }
 
   async function submit() {
-    const ok = window.confirm("Submit jawaban sekarang? Jawaban akan menjadi final.");
-    if (!ok) return;
-    const result = await api(`/attempts/${session.attempt.id}/submit`, { method: "POST", body: JSON.stringify({ answers }) });
-    setSubmittedAttempt(result);
+    if (submittedAttempt) return;
+    setSaving(true);
+    try {
+      const result = await api(`/attempts/${session.attempt.id}/submit`, { method: "POST", body: JSON.stringify({ answers }) });
+      setSubmittedAttempt(result);
+    } finally {
+      setSaving(false);
+    }
   }
 
-  async function markViolation() {
-    await api(`/attempts/${session.attempt.id}/heartbeat`, {
-      method: "POST",
-      body: JSON.stringify({ event: "focus_lost_simulation", level: "warning", message: "Simulasi event keluar aplikasi dari portal siswa." })
-    });
+  async function reloadQuestions() {
+    setSaving(true);
+    setReloadNotice("");
+    try {
+      const result = await api(`/attempts/${session.attempt.id}/reload`);
+      setCurrentQuestions(result.questions || []);
+      setAnswers(result.attempt?.answers || answers);
+      if (result.availability?.remainingMs !== undefined) setRemainingMs(result.availability.remainingMs);
+      setCurrentIndex((index) => Math.min(index, Math.max(0, (result.questions || []).length - 1)));
+      setReloadNotice("Soal berhasil dimuat ulang tanpa keluar ujian.");
+    } catch (error) {
+      setReloadNotice(error.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function QuestionNumberGrid({ closeOnPick = false }) {
+    return (
+      <div className="question-number-grid">
+        {currentQuestions.map((question, index) => {
+          const answered = isQuestionAnswered(question, answers[question.id]);
+          return (
+            <button
+              type="button"
+              className={`${index === currentIndex ? "active" : ""} ${answered ? "answered" : ""}`}
+              onClick={() => {
+                setCurrentIndex(index);
+                if (closeOnPick) setNumberModalOpen(false);
+              }}
+              key={question.id}
+              aria-label={`Soal ${index + 1}${answered ? " sudah dijawab" : " belum dijawab"}`}
+            >
+              {index + 1}
+            </button>
+          );
+        })}
+      </div>
+    );
   }
 
   if (submittedAttempt) {
@@ -1147,7 +3441,7 @@ function ExamTaking({ session, onFinished }) {
       <section className="panel exam-entry">
         <PanelTitle icon={CheckCircle2} title="Ujian Selesai" />
         <h2>Nilai: {submittedAttempt.score?.percent ?? 0}</h2>
-        <p>Benar {submittedAttempt.score?.earnedScore ?? 0} dari total {submittedAttempt.score?.totalScore ?? 0} poin. Nilai juga sudah masuk ke halaman hasil admin/guru.</p>
+        <p>Benar {submittedAttempt.score?.earnedScore ?? 0} dari total {submittedAttempt.score?.totalScore ?? 0} poin. {submittedAttempt.score?.manualPending ? `Masih ada ${submittedAttempt.score.manualPendingScore} poin uraian yang menunggu koreksi guru.` : "Nilai juga sudah masuk ke halaman hasil admin/guru."}</p>
         <button type="button" onClick={() => onFinished(submittedAttempt)}><CheckCircle2 size={18} /> Kembali ke Portal</button>
       </section>
     );
@@ -1158,54 +3452,235 @@ function ExamTaking({ session, onFinished }) {
       <section className="panel exam-header">
         <div>
           <PanelTitle icon={ListChecks} title={session.exam.subject} />
-          <p>{session.exam.code} | Durasi {session.exam.durationMinutes} menit | {Object.keys(answers).length}/{session.questions.length} terjawab</p>
+          <p>{answeredCount}/{currentQuestions.length} terjawab | Waktu: <code>{formatRemainingTime(remainingMs)}</code></p>
         </div>
-        <div className="form-actions">
-          <button type="button" className="ghost-button" onClick={markViolation}>Simulasi Log Keluar App</button>
-          <button type="button" onClick={submit}><Send size={18} /> Submit</button>
+        <div className="exam-icon-actions">
+          <button type="button" className="ghost-button icon-button" title="Muat ulang soal" aria-label="Muat ulang soal" onClick={reloadQuestions} disabled={saving}><RefreshCw size={18} /></button>
+          <button type="button" className="ghost-button icon-button" title="Ukuran soal" aria-label="Ukuran soal" onClick={() => setFontModalOpen(true)}><ALargeSmall size={18} /></button>
+          <button type="button" className="ghost-button icon-button mobile-number-button" title="Nomor soal" aria-label="Nomor soal" onClick={() => setNumberModalOpen(true)}><ListChecks size={18} /></button>
         </div>
         <span className="autosave-status">{saving ? "Menyimpan..." : "Autosave aktif"}</span>
+        {reloadNotice ? <span className="reload-status">{reloadNotice}</span> : null}
       </section>
-      <section className="question-paper">
-        {session.questions.map((question, index) => (
-          <article className="panel question-item" key={question.id}>
-            <strong>Soal {index + 1}</strong>
-            <p>{question.body}</p>
-            <div className="answer-options">
-              {question.options.map((option) => (
-                <label className="answer-option" key={option.key}>
-                  <input
-                    type="radio"
-                    name={question.id}
-                    checked={answers[question.id] === option.key}
-                    onChange={() => choose(question.id, option.key)}
-                  />
-                  <span>{option.key}</span>
-                  {option.text}
-                </label>
-              ))}
+      <section className="exam-taking-grid">
+        <aside className="panel question-nav-panel">
+          <strong>Nomor Soal</strong>
+          <QuestionNumberGrid />
+          <div className="question-nav-legend">
+            <span><i className="legend-current" /> Dibuka</span>
+            <span><i className="legend-answered" /> Selesai</span>
+            <span><i className="legend-empty" /> Belum</span>
+          </div>
+        </aside>
+        {currentQuestion ? (
+          <article className={`panel question-item active-question-card question-size-${questionFontSize}`} ref={questionCardRef} key={currentQuestion.id}>
+            <div className="active-question-head">
+              <strong>Soal {currentIndex + 1} | {questionTypeLabel(currentQuestion.type)}</strong>
+              <span>{isQuestionAnswered(currentQuestion, answers[currentQuestion.id]) ? "Sudah dijawab" : "Belum dijawab"}</span>
+            </div>
+            <p>{currentQuestion.body}</p>
+            <QuestionImage src={currentQuestion.image} alt={`Gambar soal ${currentIndex + 1}`} />
+            {currentQuestion.type === "multiple_response" ? (
+              <div className="answer-options">
+                {(currentQuestion.options || []).map((option) => (
+                  <label className="answer-option" key={option.key}>
+                    <input
+                      type="checkbox"
+                      checked={Array.isArray(answers[currentQuestion.id]) && answers[currentQuestion.id].includes(option.key)}
+                      onChange={(event) => toggleMulti(currentQuestion.id, option.key, event.target.checked)}
+                    />
+                    <span>{option.key}</span>
+                    <div>{option.text}<QuestionImage src={option.image} alt={`Gambar opsi ${option.key}`} /></div>
+                  </label>
+                ))}
+              </div>
+            ) : null}
+            {(!currentQuestion.type || currentQuestion.type === "multiple_choice") ? (
+              <div className="answer-options">
+                {(currentQuestion.options || []).map((option) => (
+                  <label className="answer-option" key={option.key}>
+                    <input
+                      type="radio"
+                      name={currentQuestion.id}
+                      checked={answers[currentQuestion.id] === option.key}
+                      onChange={() => choose(currentQuestion.id, option.key)}
+                    />
+                    <span>{option.key}</span>
+                    <div>{option.text}<QuestionImage src={option.image} alt={`Gambar opsi ${option.key}`} /></div>
+                  </label>
+                ))}
+              </div>
+            ) : null}
+            {currentQuestion.type === "true_false" ? (
+              <div className="statement-answer-list">
+                {(currentQuestion.statements || []).map((statement, statementIndex) => (
+                  <div className="statement-answer" key={statement.id}>
+                    <p>{statementIndex + 1}. {statement.text}</p>
+                    <QuestionImage src={statement.image} alt={`Gambar pernyataan ${statementIndex + 1}`} />
+                    <div className="row-actions">
+                      <label><input type="radio" name={`${currentQuestion.id}-${statement.id}`} checked={answers[currentQuestion.id]?.[statement.id] === "true"} onChange={() => chooseNested(currentQuestion.id, statement.id, "true")} /> Benar</label>
+                      <label><input type="radio" name={`${currentQuestion.id}-${statement.id}`} checked={answers[currentQuestion.id]?.[statement.id] === "false"} onChange={() => chooseNested(currentQuestion.id, statement.id, "false")} /> Salah</label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {currentQuestion.type === "matching" ? (
+              <div className="matching-answer-list">
+                {(currentQuestion.pairs || []).map((pair, pairIndex) => (
+                  <label className="matching-answer" key={pair.id}>
+                    <span>{pairIndex + 1}. {pair.left}</span>
+                    <QuestionImage src={pair.leftImage} alt={`Gambar pasangan ${pairIndex + 1}`} />
+                    <select value={answers[currentQuestion.id]?.[pair.id] || ""} onChange={(event) => chooseNested(currentQuestion.id, pair.id, event.target.value)}>
+                      <option value="">Pilih pasangan...</option>
+                      {(currentQuestion.matchingOptions || []).map((option) => <option value={option.value} key={option.value}>{option.value}</option>)}
+                    </select>
+                  </label>
+                ))}
+              </div>
+            ) : null}
+            {currentQuestion.type === "short_answer" ? (
+              <input
+                className="short-answer-input"
+                value={answers[currentQuestion.id] || ""}
+                placeholder="Tulis jawaban singkat..."
+                onChange={(event) => setAnswers({ ...answers, [currentQuestion.id]: event.target.value })}
+                onBlur={(event) => choose(currentQuestion.id, event.target.value)}
+              />
+            ) : null}
+            {currentQuestion.type === "essay" ? (
+              <textarea
+                className="essay-answer-input"
+                value={answers[currentQuestion.id] || ""}
+                placeholder="Tulis jawaban uraian..."
+                onChange={(event) => setAnswers({ ...answers, [currentQuestion.id]: event.target.value })}
+                onBlur={(event) => choose(currentQuestion.id, event.target.value)}
+              />
+            ) : null}
+            <div className="question-step-actions">
+              <button type="button" className="ghost-button" onClick={() => setCurrentIndex((index) => Math.max(0, index - 1))} disabled={currentIndex === 0}>Sebelumnya</button>
+              {currentIndex >= currentQuestions.length - 1 ? (
+                <button type="button" onClick={() => setSubmitConfirmOpen(true)} disabled={!canSubmitNow || remainingMs <= 0 || saving}>
+                  <Send size={18} /> {canSubmitNow ? "Submit" : "Submit belum tersedia"}
+                </button>
+              ) : (
+                <button type="button" onClick={() => setCurrentIndex((index) => Math.min(currentQuestions.length - 1, index + 1))}>Berikutnya</button>
+              )}
             </div>
           </article>
-        ))}
+        ) : (
+          <div className="empty-state">
+            <BookOpen size={34} />
+            <strong>Soal tidak tersedia.</strong>
+            <p>Coba tekan Muat Ulang Soal atau hubungi pengawas.</p>
+          </div>
+        )}
       </section>
+      {numberModalOpen ? (
+        <Modal title="Nomor Soal" icon={ListChecks} onClose={() => setNumberModalOpen(false)}>
+          <div className="mobile-question-picker">
+            <QuestionNumberGrid closeOnPick />
+            <div className="question-nav-legend">
+              <span><i className="legend-current" /> Dibuka</span>
+              <span><i className="legend-answered" /> Selesai</span>
+              <span><i className="legend-empty" /> Belum</span>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+      {fontModalOpen ? (
+        <Modal title="Ukuran Soal" icon={ALargeSmall} onClose={() => setFontModalOpen(false)}>
+          <div className="font-size-picker">
+            <p className="muted">Pilih ukuran teks soal dan pilihan jawaban. Pengaturan ini tersimpan di perangkat yang sedang dipakai.</p>
+            <div className="font-size-options">
+              {questionFontOptions.map((option) => (
+                <button
+                  type="button"
+                  className={`font-size-option${questionFontSize === option.value ? " active" : ""}`}
+                  onClick={() => setQuestionFontSize(option.value)}
+                  key={option.value}
+                >
+                  <span className={`font-size-sample ${option.value}`}>A</span>
+                  <span>
+                    <strong>{option.label}</strong>
+                    <small>{option.description}</small>
+                    <em>{option.sample}</em>
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className={`font-size-preview question-size-${questionFontSize}`}>
+              <strong>Contoh tampilan</strong>
+              <p>Manakah pilihan yang paling tepat untuk contoh soal ini?</p>
+              <div className="font-preview-option"><span>A</span><b>Contoh pilihan jawaban yang akan terbaca dengan ukuran ini.</b></div>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+      {submitConfirmOpen ? (
+        <Modal title="Konfirmasi Submit" icon={Send} onClose={() => setSubmitConfirmOpen(false)}>
+          <div className="submit-confirm">
+            <div className={unansweredCount ? "warning-box" : "success-box"}>
+              {unansweredCount ? (
+                <span>Masih ada {unansweredCount} soal belum dijawab. Jawaban tetap bisa disubmit, tetapi tidak bisa diubah lagi setelah final.</span>
+              ) : (
+                <span>Semua soal sudah memiliki jawaban. Setelah submit, jawaban menjadi final.</span>
+              )}
+            </div>
+            <div className="submit-confirm-summary">
+              <div><span>Terjawab</span><strong>{answeredCount}/{currentQuestions.length}</strong></div>
+              <div><span>Waktu</span><strong>{formatRemainingTime(remainingMs)}</strong></div>
+            </div>
+            <p>Yakin ingin mengirim jawaban sekarang?</p>
+            <div className="form-actions">
+              <button type="button" onClick={() => { setSubmitConfirmOpen(false); submit(); }} disabled={saving}><Send size={18} /> Ya, Submit Final</button>
+              <button type="button" className="ghost-button" onClick={() => setSubmitConfirmOpen(false)}>Kembali Mengerjakan</button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
     </div>
   );
 }
 
-function StudentDashboard({ user }) {
+function StudentDashboard({ user, onExamModeChange }) {
   const [studentExams, setStudentExams] = useState([]);
   const [tokenByExam, setTokenByExam] = useState({});
   const [session, setSession] = useState(null);
   const [notice, setNotice] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastLoadedAt, setLastLoadedAt] = useState("");
+  const [activeTab, setActiveTab] = useState("ready");
+  const [selectedExam, setSelectedExam] = useState(null);
+  const [rulesAccepted, setRulesAccepted] = useState(false);
 
-  async function load() {
-    const data = await api(`/student/${user.id}/exams`);
-    setStudentExams(data);
+  async function load({ silent = false } = {}) {
+    if (!silent) setRefreshing(true);
+    try {
+      const data = await api(`/student/${user.id}/exams`);
+      setStudentExams(data);
+      setLastLoadedAt(new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+    } finally {
+      if (!silent) setRefreshing(false);
+    }
   }
 
   useEffect(() => {
     load();
   }, [user.id]);
+
+  useEffect(() => {
+    if (session) return undefined;
+    const timer = window.setInterval(() => {
+      load({ silent: true }).catch(() => {});
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [session, user.id]);
+
+  useEffect(() => {
+    onExamModeChange?.(Boolean(session));
+    return () => onExamModeChange?.(false);
+  }, [session, onExamModeChange]);
 
   async function start(examId) {
     setNotice("");
@@ -1214,52 +3689,139 @@ function StudentDashboard({ user }) {
         method: "POST",
         body: JSON.stringify({ studentId: user.id, examId, token: tokenByExam[examId] || "" })
       });
+      setSelectedExam(null);
+      setRulesAccepted(false);
       setSession(result);
     } catch (err) {
       setNotice(err.message);
     }
   }
 
+  function beginExam(item) {
+    if (item.status === "in_progress") {
+      start(item.exam.id);
+      return;
+    }
+    openRules(item);
+  }
+
   if (session) {
     return <ExamTaking session={session} onFinished={() => { setSession(null); load(); }} />;
   }
 
+  const counts = {
+    ready: studentExams.filter((item) => item.canStart && item.status !== "submitted").length,
+    upcoming: studentExams.filter((item) => ["upcoming", "closed", "invalid_schedule"].includes(item.scheduleStatus) && item.status !== "submitted").length,
+    finished: studentExams.filter((item) => item.status === "submitted" || item.scheduleStatus === "ended").length,
+    all: studentExams.length
+  };
+  const tabs = [
+    { key: "ready", label: "Bisa Dikerjakan", count: counts.ready },
+    { key: "upcoming", label: "Akan Datang", count: counts.upcoming },
+    { key: "finished", label: "Selesai", count: counts.finished },
+    { key: "all", label: "Semua", count: counts.all }
+  ];
+  const filteredExams = studentExams.filter((item) => {
+    if (activeTab === "ready") return item.canStart && item.status !== "submitted";
+    if (activeTab === "upcoming") return ["upcoming", "closed", "invalid_schedule"].includes(item.scheduleStatus) && item.status !== "submitted";
+    if (activeTab === "finished") return item.status === "submitted" || item.scheduleStatus === "ended";
+    return true;
+  });
+
+  function openRules(examItem) {
+    setNotice("");
+    setSelectedExam(examItem);
+    setRulesAccepted(false);
+  }
+
   return (
-    <div className="student-layout">
-      <section className="panel exam-entry">
-        <PanelTitle icon={ShieldCheck} title="Portal Peserta" />
-        <h2>{user.name}</h2>
-        <p>{user.className || "Siswa"}</p>
-        {notice ? <div className="error-box">{notice}</div> : null}
-        {studentExams.length ? studentExams.map(({ exam, status, score, questionCount }) => (
-          <div className="exam-ticket" key={exam.id}>
-            <strong>{exam.subject}</strong>
-            <span>{exam.date} | {exam.startTime} | {exam.durationMinutes} menit | {questionCount} soal</span>
-            <span>Status: {status}</span>
-            {score ? <code>Nilai: {score.percent}</code> : null}
-            {status === "submitted" ? null : (
-              <div className="token-row">
-                <input
-                  placeholder="Token ujian"
-                  value={tokenByExam[exam.id] || ""}
-                  onChange={(event) => setTokenByExam({ ...tokenByExam, [exam.id]: event.target.value })}
-                />
-                <button type="button" onClick={() => start(exam.id)}><PlayCircle size={18} /> Mulai</button>
-              </div>
-            )}
+    <section className="panel student-portal-panel">
+      <div className="student-portal-head">
+        <div>
+          <PanelTitle icon={ShieldCheck} title="Portal Peserta" />
+          <h2>{user.name}</h2>
+          <p>{user.className || "Siswa"}</p>
+          <div className="portal-actions">
+            <button type="button" className="ghost-button" onClick={() => load()} disabled={refreshing}>
+              <RefreshCw size={18} /> {refreshing ? "Memuat..." : "Muat Ulang Jadwal"}
+            </button>
+            {lastLoadedAt ? <span>Update {lastLoadedAt}</span> : null}
           </div>
-        )) : <p>Belum ada jadwal ujian untuk akun ini.</p>}
-      </section>
-      <section className="panel">
-        <PanelTitle icon={MonitorSmartphone} title="Aturan Exam Client" />
-        <ul className="rule-list">
-          <li>Jangan keluar dari aplikasi selama ujian.</li>
-          <li>Setiap keluar aplikasi akan tercatat di dashboard pengawas.</li>
-          <li>Login hanya berlaku untuk satu perangkat.</li>
-          <li>Jawaban tersimpan otomatis selama koneksi tersedia.</li>
-        </ul>
-      </section>
-    </div>
+        </div>
+        <div className="student-stat-strip">
+          <StatCard icon={PlayCircle} label="Bisa Dikerjakan" value={counts.ready} />
+          <StatCard icon={CalendarDays} label="Akan Datang" value={counts.upcoming} />
+          <StatCard icon={CheckCircle2} label="Selesai" value={counts.finished} />
+        </div>
+      </div>
+      {notice ? <div className="error-box">{notice}</div> : null}
+      <div className="exam-tabs">
+        {tabs.map((tab) => (
+          <button type="button" className={activeTab === tab.key ? "active" : ""} onClick={() => setActiveTab(tab.key)} key={tab.key}>
+            {tab.label} <span>{tab.count}</span>
+          </button>
+        ))}
+      </div>
+      <div className="student-exam-list">
+        {filteredExams.length ? filteredExams.map((item) => {
+          const { exam, status, score, questionCount, canStart, scheduleStatus, scheduleMessage, remainingMs } = item;
+          return (
+            <div className="exam-ticket" key={exam.id}>
+              <div className="exam-ticket-main">
+                <strong>{exam.subject}</strong>
+                <span>{exam.date} | {formatExamTimeRange(exam)} | {exam.durationMinutes} menit | {questionCount} soal</span>
+                <span>Status pengerjaan: {formatResultStatus(status)}</span>
+                <span className={scheduleStatusClass(scheduleStatus)}>{formatScheduleStatus(scheduleStatus)}</span>
+                {scheduleStatus === "active" ? <code>Sisa waktu jadwal: {formatRemainingTime(remainingMs)}</code> : null}
+                {scheduleMessage ? <p className="muted">{scheduleMessage}</p> : null}
+                {score ? <code>Nilai: {score.percent}</code> : null}
+              </div>
+              <div className="exam-ticket-action">
+                {status === "submitted" ? <span className="status-pill selected">Selesai</span> : canStart ? (
+                  <button type="button" onClick={() => beginExam(item)}><PlayCircle size={18} /> {status === "in_progress" ? "Lanjutkan" : "Mulai"}</button>
+                ) : (
+                  <button type="button" className="ghost-button" disabled><PlayCircle size={18} /> Belum Bisa Mulai</button>
+                )}
+              </div>
+            </div>
+          );
+        }) : <p className="muted">Tidak ada ujian pada kategori ini.</p>}
+      </div>
+
+      {selectedExam ? (
+        <Modal title="Aturan Exam Client" icon={MonitorSmartphone} onClose={() => setSelectedExam(null)}>
+          <div className="exam-rule-modal">
+            <strong>{selectedExam.exam.subject}</strong>
+            <p className="muted">{selectedExam.exam.date} | {formatExamTimeRange(selectedExam.exam)} | Sisa waktu {formatRemainingTime(selectedExam.remainingMs)}</p>
+            <ul className="rule-list">
+              <li>Jangan keluar dari aplikasi selama ujian.</li>
+              <li>Setiap keluar aplikasi akan tercatat di dashboard pengawas.</li>
+              <li>Login hanya berlaku untuk satu perangkat.</li>
+              <li>Jawaban tersimpan otomatis selama koneksi tersedia.</li>
+              <li>Waktu ujian mengikuti jadwal sekolah, bukan waktu mulai pribadi.</li>
+            </ul>
+            <label>
+              Token ujian
+              <input
+                placeholder="Masukkan token ujian"
+                value={tokenByExam[selectedExam.exam.id] || ""}
+                onChange={(event) => setTokenByExam({ ...tokenByExam, [selectedExam.exam.id]: event.target.value })}
+              />
+            </label>
+            <label className="inline-check">
+              <input type="checkbox" checked={rulesAccepted} onChange={(event) => setRulesAccepted(event.target.checked)} />
+              Saya memahami dan menyetujui aturan ujian.
+            </label>
+            <div className="form-actions">
+              <button type="button" disabled={!rulesAccepted || !(tokenByExam[selectedExam.exam.id] || "").trim()} onClick={() => start(selectedExam.exam.id)}>
+                <PlayCircle size={18} /> Lanjut Ujian
+              </button>
+              <button type="button" className="ghost-button" onClick={() => setSelectedExam(null)}>Batal</button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+    </section>
   );
 }
 
@@ -1291,11 +3853,13 @@ function App() {
   const [view, setView] = useState("dashboard");
   const [summary, setSummary] = useState({});
   const [students, setStudents] = useState([]);
+  const [teachers, setTeachers] = useState([]);
   const [exams, setExams] = useState([]);
   const [questions, setQuestions] = useState([]);
   const [violations, setViolations] = useState([]);
   const [attempts, setAttempts] = useState([]);
   const [results, setResults] = useState([]);
+  const [studentExamActive, setStudentExamActive] = useState(false);
 
   const roleLabel = useMemo(() => {
     if (!user) return "";
@@ -1307,6 +3871,7 @@ function App() {
     if (user.role === "admin") {
       return [
         { view: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+        { view: "teachers", label: "Data Guru", icon: UserRound },
         { view: "students", label: "Data Siswa", icon: Users },
         { view: "cards", label: "Kartu Peserta", icon: CreditCard },
         { view: "exams", label: "Ujian", icon: ClipboardList },
@@ -1318,6 +3883,7 @@ function App() {
     if (user.role === "guru") {
       return [
         { view: "questions", label: "Bank Soal", icon: BookOpen },
+        { view: "questionTest", label: "Test Soal", icon: MonitorSmartphone },
         { view: "results", label: "Hasil", icon: CheckCircle2 }
       ];
     }
@@ -1332,27 +3898,45 @@ function App() {
 
   async function refresh() {
     if (!user || user.role === "siswa") return;
-    const [summaryData, studentsData, examsData, questionsData, violationsData, attemptsData, resultsData] = await Promise.all([
-      api("/summary"),
-      api("/students"),
-      api("/exams"),
-      api("/questions"),
-      api("/violations"),
-      api("/attempts"),
-      api("/results")
-    ]);
-    setSummary(summaryData);
-    setStudents(studentsData);
-    setExams(examsData);
-    setQuestions(questionsData);
-    setViolations(violationsData);
-    setAttempts(attemptsData);
-    setResults(resultsData);
+    try {
+      const [summaryData, studentsData, teachersData, examsData, questionsData, violationsData, attemptsData, resultsData] = await Promise.all([
+        api("/summary"),
+        api("/students"),
+        api("/teachers"),
+        api("/exams"),
+        api("/questions"),
+        api("/violations"),
+        api("/attempts"),
+        api("/results")
+      ]);
+      setSummary(summaryData);
+      setStudents(studentsData);
+      setTeachers(teachersData);
+      setExams(examsData);
+      setQuestions(questionsData);
+      setViolations(violationsData);
+      setAttempts(attemptsData);
+      setResults(resultsData);
+    } catch {
+      if (!readSession()) {
+        setUser(null);
+        setView("dashboard");
+      }
+    }
   }
 
   useEffect(() => {
     if (user) refresh();
   }, [user]);
+
+  useEffect(() => {
+    if (!user || user.role === "siswa") return undefined;
+    const refreshMs = view === "monitoring" || user.role === "pengawas" ? 5000 : 30000;
+    const timer = window.setInterval(() => {
+      refresh().catch(() => {});
+    }, refreshMs);
+    return () => window.clearInterval(timer);
+  }, [user, view]);
 
   if (!user) return <Login onLogin={setUser} />;
 
@@ -1360,36 +3944,56 @@ function App() {
     clearSession();
     setUser(null);
     setView("dashboard");
+    setStudentExamActive(false);
   }
 
   function renderContent() {
     if (user.role === "guru") {
-      if (view === "results") return <ResultsDashboard results={results} />;
+      if (view === "results") return <ResultsDashboard results={results} students={students} exams={exams} />;
+      if (view === "questionTest") return <TeacherQuestionTest exams={exams} questions={questions} />;
       return <TeacherDashboard exams={exams} questions={questions} onQuestionCreated={refresh} />;
     }
     if (user.role === "siswa") {
-      return <StudentDashboard user={user} exams={exams} />;
+      return <StudentDashboard user={user} exams={exams} onExamModeChange={setStudentExamActive} />;
+    }
+    if (user.role === "pengawas") {
+      if (view === "results") return <ResultsDashboard results={results} students={students} exams={exams} />;
+      return <MonitoringDashboard attempts={attempts} students={students} exams={exams} violations={violations} />;
     }
     if (view === "students") {
       return <StudentManager students={students} onChanged={refresh} onExit={() => setView("dashboard")} />;
+    }
+    if (view === "teachers") {
+      return <TeacherManager teachers={teachers} onChanged={refresh} onExit={() => setView("dashboard")} />;
     }
     if (view === "cards") {
       return <ParticipantCards students={students} />;
     }
     if (view === "exams") {
-      return <ExamManager exams={exams} onChanged={refresh} onExit={() => setView("dashboard")} />;
+      return <ExamManager exams={exams} questions={questions} teachers={teachers} onChanged={refresh} onExit={() => setView("dashboard")} />;
     }
     if (view === "examParticipants") {
       return <ExamParticipants exams={exams} students={students} attempts={attempts} onChanged={refresh} />;
     }
     if (view === "results") {
-      return <ResultsDashboard results={results} />;
+      return <ResultsDashboard results={results} students={students} exams={exams} />;
     }
-    return <AdminDashboard summary={summary} students={students} exams={exams} violations={violations} />;
+    if (view === "monitoring") {
+      return <MonitoringDashboard attempts={attempts} students={students} exams={exams} violations={violations} />;
+    }
+    return <AdminDashboard summary={summary} students={students} exams={exams} questions={questions} attempts={attempts} results={results} violations={violations} />;
+  }
+
+  function pageTitle() {
+    if (user.role === "guru" && view === "questionTest") return "Dashboard Test Soal";
+    if (user.role === "guru" && view === "results") return "Dashboard Hasil";
+    if (user.role === "guru") return "Dashboard Bank Soal";
+    if (user.role === "pengawas" || view === "monitoring") return "Dashboard Monitoring";
+    return "Dashboard Aplikasi Ujian";
   }
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell ${studentExamActive ? "exam-mode" : ""}`}>
       <aside className="sidebar">
         <div className="sidebar-brand">
           <ShieldCheck size={26} />
@@ -1413,11 +4017,13 @@ function App() {
         <header className="topbar">
           <div>
             <span className="eyebrow">{roleLabel}</span>
-            <h1>Dashboard Aplikasi Ujian</h1>
+            <h1>{pageTitle()}</h1>
           </div>
-          <button className="ghost-button" type="button" onClick={logout}>
-            <LogOut size={18} /> Keluar
-          </button>
+          {!studentExamActive ? (
+            <button className="ghost-button" type="button" onClick={logout}>
+              <LogOut size={18} /> Keluar
+            </button>
+          ) : null}
         </header>
         {renderContent()}
       </section>

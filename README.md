@@ -146,25 +146,34 @@ Siswa dengan mapel pilihan: 216
 - Daftar siswa memakai pagination default 50 data per halaman.
 - Kartu peserta memakai pagination saat dilihat di layar.
 - Saat cetak kartu, semua kartu sesuai filter ikut dicetak.
-- Layout cetak kartu peserta disiapkan sekitar 15 kartu per A4.
+- Layout cetak kartu peserta memiliki mode Besar, Sedang, dan Hemat.
+- QR code pada kartu peserta disembunyikan sementara sampai fitur scan pengawas/guru dipakai.
+- Password siswa baru otomatis random 6 karakter huruf/angka jika kolom password dikosongkan.
+- Data Siswa memiliki tombol generate ulang password sesuai filter yang sedang aktif.
 - Halaman Ujian hanya berisi daftar ujian dan modal tambah/edit ujian.
 - Peserta Ujian dipisah ke halaman/menu tersendiri.
 
 Catatan PostgreSQL:
 
 ```text
-Saat ini mode data testing masih memakai data/cbt-store.json.
-Adapter PostgreSQL sudah tersedia, tetapi aktivasi penuh sebaiknya dilakukan setelah struktur data utama stabil.
-Alasannya: data siswa, mapel pilihan, peserta ujian, kartu, soal, dan hasil masih terus dirapikan.
-Setelah alur admin/guru/siswa matang, DATABASE_URL dapat diisi di .env dan schema PostgreSQL dapat dijadikan sumber data utama.
+Mode default tanpa .env tetap memakai data/cbt-store.json.
+Untuk mengaktifkan PostgreSQL:
+1. Buat file .env dari .env.example.
+2. Isi DATABASE_URL, contoh postgres://postgres:PASSWORD@localhost:5432/cbt_sman94.
+3. Jalankan npm run db:setup.
+4. Restart npm run dev.
+
+Saat PostgreSQL kosong, data awal akan dimigrasikan dari data/cbt-store.json agar data siswa, guru, ujian, soal, peserta, hasil, dan pelanggaran yang sudah dibuat tidak hilang.
+Health check /api/health akan menampilkan storage: postgresql jika DATABASE_URL aktif.
+Panduan teknis lengkap tersedia di db/SETUP_POSTGRES.md.
 ```
 
 Format import siswa yang disarankan:
 
 ```text
-nis,nisn,name,gender,className,username,password,room,session,Mapel Pilihan 1,Mapel Pilihan 2,Mapel Pilihan 3,Mapel Pilihan 4,Mapel Pilihan 5
-10676,0062721508,AGISFA ROCHMANY ALFATH,L,XII.2,10676,10676,Lab 1,Sesi 1,Informatika 2,Sejarah TL 2,,,
-10690,0061606839,AMELIA RASHEEDAH,P,XII.3,10690,10690,Lab 1,Sesi 1,Sejarah TL 1,Sosiologi 1,,,
+nis,nisn,name,gender,className,username,password,Mapel Pilihan 1,Mapel Pilihan 2,Mapel Pilihan 3,Mapel Pilihan 4,Mapel Pilihan 5
+10676,0062721508,AGISFA ROCHMANY ALFATH,L,XII.2,10676,10676,Informatika 2,Sejarah TL 2,,,
+10690,0061606839,AMELIA RASHEEDAH,P,XII.3,10690,10690,Sejarah TL 1,Sosiologi 1,,,
 ```
 
 Format import soal yang didukung:
@@ -204,5 +213,5 @@ Kunci: A
 - Import soal dari Word.
 - Dashboard pengawas real-time.
 - Android exam client dengan fullscreen, heartbeat, device binding, dan log keluar aplikasi.
-- Role dan hak akses lebih ketat per guru, mapel, kelas, dan ruang.
+- Role dan hak akses lebih ketat per guru, mapel, kelas, dan jadwal ujian.
 - Backup otomatis PostgreSQL harian.

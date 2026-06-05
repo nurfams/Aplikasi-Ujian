@@ -12,15 +12,18 @@ export const pool = postgresEnabled
 
 let initPromise = null;
 
-const schema = `
+export const schema = `
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   role TEXT NOT NULL,
   name TEXT NOT NULL,
   username TEXT NOT NULL UNIQUE,
   password TEXT NOT NULL,
-  class_name TEXT
+  class_name TEXT,
+  subjects JSONB NOT NULL DEFAULT '[]'::jsonb
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS subjects JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 CREATE TABLE IF NOT EXISTS students (
   id TEXT PRIMARY KEY,
@@ -45,24 +48,46 @@ CREATE TABLE IF NOT EXISTS exams (
   code TEXT NOT NULL UNIQUE,
   subject TEXT NOT NULL,
   teacher_id TEXT,
+  teacher_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
   exam_date TEXT,
   start_time TEXT,
+  end_time TEXT,
   duration_minutes INTEGER NOT NULL DEFAULT 90,
+  submit_unlock_minutes INTEGER NOT NULL DEFAULT 30,
   token TEXT,
   status TEXT NOT NULL DEFAULT 'draft',
+  review_status TEXT NOT NULL DEFAULT 'unreviewed',
   randomize_questions BOOLEAN NOT NULL DEFAULT FALSE,
   randomize_options BOOLEAN NOT NULL DEFAULT FALSE
 );
+
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS end_time TEXT;
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'unreviewed';
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS teacher_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS submit_unlock_minutes INTEGER NOT NULL DEFAULT 30;
 
 CREATE TABLE IF NOT EXISTS questions (
   id TEXT PRIMARY KEY,
   exam_id TEXT NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
   type TEXT NOT NULL DEFAULT 'multiple_choice',
   body TEXT NOT NULL,
+  image TEXT NOT NULL DEFAULT '',
   options JSONB NOT NULL DEFAULT '[]'::jsonb,
   answer_key TEXT,
+  correct_answers JSONB NOT NULL DEFAULT '[]'::jsonb,
+  statements JSONB NOT NULL DEFAULT '[]'::jsonb,
+  pairs JSONB NOT NULL DEFAULT '[]'::jsonb,
+  short_answers JSONB NOT NULL DEFAULT '[]'::jsonb,
+  answer_rules JSONB NOT NULL DEFAULT '{}'::jsonb,
   score NUMERIC NOT NULL DEFAULT 1
 );
+
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS image TEXT NOT NULL DEFAULT '';
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS correct_answers JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS statements JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS pairs JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS short_answers JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS answer_rules JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 CREATE TABLE IF NOT EXISTS attempts (
   id TEXT PRIMARY KEY,
@@ -70,12 +95,17 @@ CREATE TABLE IF NOT EXISTS attempts (
   student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
   status TEXT NOT NULL DEFAULT 'not_started',
   answers JSONB NOT NULL DEFAULT '{}'::jsonb,
+  question_order JSONB NOT NULL DEFAULT '[]'::jsonb,
+  option_orders JSONB NOT NULL DEFAULT '{}'::jsonb,
   score JSONB,
   started_at TIMESTAMPTZ,
   submitted_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ,
   UNIQUE (exam_id, student_id)
 );
+
+ALTER TABLE attempts ADD COLUMN IF NOT EXISTS question_order JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE attempts ADD COLUMN IF NOT EXISTS option_orders JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 CREATE TABLE IF NOT EXISTS violations (
   id TEXT PRIMARY KEY,
@@ -87,6 +117,30 @@ CREATE TABLE IF NOT EXISTS violations (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS active_sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,
+  user_agent TEXT,
+  ip_address TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id TEXT PRIMARY KEY,
+  user_id TEXT,
+  username TEXT,
+  role TEXT,
+  action TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT,
+  message TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_students_class_name ON students(class_name);
 CREATE INDEX IF NOT EXISTS idx_exams_status ON exams(status);
 CREATE INDEX IF NOT EXISTS idx_questions_exam_id ON questions(exam_id);
@@ -95,6 +149,10 @@ CREATE INDEX IF NOT EXISTS idx_attempts_student_id ON attempts(student_id);
 CREATE INDEX IF NOT EXISTS idx_attempts_status ON attempts(status);
 CREATE INDEX IF NOT EXISTS idx_violations_exam_id ON violations(exam_id);
 CREATE INDEX IF NOT EXISTS idx_violations_student_id ON violations(student_id);
+CREATE INDEX IF NOT EXISTS idx_active_sessions_user_id ON active_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_active_sessions_expires_at ON active_sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity_type, entity_id);
 `;
 
 function toIso(value) {
@@ -123,13 +181,15 @@ async function setupDatabase(seed) {
 }
 
 export async function readStoreFromPostgres() {
-  const [users, students, exams, questions, attempts, violations] = await Promise.all([
+  const [users, students, exams, questions, attempts, violations, sessions, auditLogs] = await Promise.all([
     pool.query("SELECT * FROM users ORDER BY role, name"),
     pool.query("SELECT * FROM students ORDER BY class_name, name"),
     pool.query("SELECT * FROM exams ORDER BY exam_date NULLS LAST, start_time NULLS LAST, code"),
     pool.query("SELECT * FROM questions ORDER BY exam_id, id"),
     pool.query("SELECT * FROM attempts ORDER BY updated_at DESC NULLS LAST, id"),
-    pool.query("SELECT * FROM violations ORDER BY created_at DESC")
+    pool.query("SELECT * FROM violations ORDER BY created_at DESC"),
+    pool.query("SELECT * FROM active_sessions ORDER BY last_seen_at DESC"),
+    pool.query("SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 500")
   ]);
 
   return {
@@ -139,7 +199,8 @@ export async function readStoreFromPostgres() {
       name: row.name,
       username: row.username,
       password: row.password,
-      className: row.class_name || undefined
+      className: row.class_name || undefined,
+      subjects: row.subjects || []
     })),
     students: students.rows.map((row) => ({
       id: row.id,
@@ -159,11 +220,15 @@ export async function readStoreFromPostgres() {
       code: row.code,
       subject: row.subject,
       teacherId: row.teacher_id,
+      teacherIds: row.teacher_ids || (row.teacher_id ? [row.teacher_id] : []),
       date: row.exam_date,
       startTime: row.start_time,
+      endTime: row.end_time || "",
       durationMinutes: row.duration_minutes,
+      submitUnlockMinutes: row.submit_unlock_minutes ?? 30,
       token: row.token,
       status: row.status,
+      reviewStatus: row.review_status || "unreviewed",
       randomizeQuestions: row.randomize_questions,
       randomizeOptions: row.randomize_options
     })),
@@ -172,8 +237,14 @@ export async function readStoreFromPostgres() {
       examId: row.exam_id,
       type: row.type,
       body: row.body,
+      image: row.image || "",
       options: row.options || [],
       answerKey: row.answer_key,
+      correctAnswers: row.correct_answers || [],
+      statements: row.statements || [],
+      pairs: row.pairs || [],
+      shortAnswers: row.short_answers || [],
+      answerRules: row.answer_rules || {},
       score: Number(row.score)
     })),
     attempts: attempts.rows.map((row) => ({
@@ -182,6 +253,8 @@ export async function readStoreFromPostgres() {
       studentId: row.student_id,
       status: row.status,
       answers: row.answers || {},
+      questionOrder: row.question_order || [],
+      optionOrders: row.option_orders || {},
       score: row.score,
       startedAt: toIso(row.started_at),
       submittedAt: toIso(row.submitted_at),
@@ -195,6 +268,28 @@ export async function readStoreFromPostgres() {
       level: row.level,
       message: row.message,
       createdAt: toIso(row.created_at)
+    })),
+    sessions: sessions.rows.map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      role: row.role,
+      userAgent: row.user_agent || "",
+      ipAddress: row.ip_address || "",
+      createdAt: toIso(row.created_at),
+      lastSeenAt: toIso(row.last_seen_at),
+      expiresAt: toIso(row.expires_at)
+    })),
+    auditLogs: auditLogs.rows.map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      username: row.username,
+      role: row.role,
+      action: row.action,
+      entityType: row.entity_type,
+      entityId: row.entity_id,
+      message: row.message,
+      metadata: row.metadata || {},
+      createdAt: toIso(row.created_at)
     }))
   };
 }
@@ -204,6 +299,8 @@ export async function writeStoreToPostgres(store) {
   try {
     await client.query("BEGIN");
 
+    await deleteMissingRows(client, "audit_logs", store.auditLogs || []);
+    await deleteMissingRows(client, "active_sessions", store.sessions || []);
     await deleteMissingRows(client, "violations", store.violations);
     await deleteMissingRows(client, "attempts", store.attempts);
     await deleteMissingRows(client, "questions", store.questions);
@@ -217,6 +314,8 @@ export async function writeStoreToPostgres(store) {
     await upsertRows(client, store.questions, upsertQuestion);
     await upsertRows(client, store.attempts, upsertAttempt);
     await upsertRows(client, store.violations, upsertViolation);
+    await upsertRows(client, store.sessions || [], upsertSession);
+    await upsertRows(client, store.auditLogs || [], upsertAuditLog);
 
     await client.query("COMMIT");
   } catch (error) {
@@ -244,15 +343,16 @@ async function upsertRows(client, rows, upsert) {
 
 function upsertUser(client, row) {
   return client.query(
-    `INSERT INTO users (id, role, name, username, password, class_name)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO users (id, role, name, username, password, class_name, subjects)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
      ON CONFLICT (id) DO UPDATE SET
        role = EXCLUDED.role,
        name = EXCLUDED.name,
        username = EXCLUDED.username,
        password = EXCLUDED.password,
-       class_name = EXCLUDED.class_name`,
-    [row.id, row.role, row.name, row.username, row.password, row.className || null]
+       class_name = EXCLUDED.class_name,
+       subjects = EXCLUDED.subjects`,
+    [row.id, row.role, row.name, row.username, row.password, row.className || null, JSON.stringify(row.subjects || [])]
   );
 }
 
@@ -277,52 +377,90 @@ function upsertStudent(client, row) {
 
 function upsertExam(client, row) {
   return client.query(
-    `INSERT INTO exams (id, code, subject, teacher_id, exam_date, start_time, duration_minutes, token, status, randomize_questions, randomize_options)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    `INSERT INTO exams (id, code, subject, teacher_id, teacher_ids, exam_date, start_time, end_time, duration_minutes, submit_unlock_minutes, token, status, review_status, randomize_questions, randomize_options)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
      ON CONFLICT (id) DO UPDATE SET
        code = EXCLUDED.code,
        subject = EXCLUDED.subject,
        teacher_id = EXCLUDED.teacher_id,
+       teacher_ids = EXCLUDED.teacher_ids,
        exam_date = EXCLUDED.exam_date,
        start_time = EXCLUDED.start_time,
+       end_time = EXCLUDED.end_time,
        duration_minutes = EXCLUDED.duration_minutes,
+       submit_unlock_minutes = EXCLUDED.submit_unlock_minutes,
        token = EXCLUDED.token,
        status = EXCLUDED.status,
+       review_status = EXCLUDED.review_status,
        randomize_questions = EXCLUDED.randomize_questions,
        randomize_options = EXCLUDED.randomize_options`,
-    [row.id, row.code, row.subject, row.teacherId || null, row.date || null, row.startTime || null, row.durationMinutes, row.token || "", row.status || "draft", !!row.randomizeQuestions, !!row.randomizeOptions]
+    [row.id, row.code, row.subject, row.teacherId || null, JSON.stringify(row.teacherIds || (row.teacherId ? [row.teacherId] : [])), row.date || null, row.startTime || null, row.endTime || null, row.durationMinutes, row.submitUnlockMinutes ?? 30, row.token || "", row.status || "draft", row.reviewStatus || "unreviewed", !!row.randomizeQuestions, !!row.randomizeOptions]
   );
 }
 
 function upsertQuestion(client, row) {
   return client.query(
-    `INSERT INTO questions (id, exam_id, type, body, options, answer_key, score)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+    `INSERT INTO questions (id, exam_id, type, body, image, options, answer_key, correct_answers, statements, pairs, short_answers, answer_rules, score)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb, $13)
      ON CONFLICT (id) DO UPDATE SET
        exam_id = EXCLUDED.exam_id,
        type = EXCLUDED.type,
        body = EXCLUDED.body,
+       image = EXCLUDED.image,
        options = EXCLUDED.options,
        answer_key = EXCLUDED.answer_key,
+       correct_answers = EXCLUDED.correct_answers,
+       statements = EXCLUDED.statements,
+       pairs = EXCLUDED.pairs,
+       short_answers = EXCLUDED.short_answers,
+       answer_rules = EXCLUDED.answer_rules,
        score = EXCLUDED.score`,
-    [row.id, row.examId, row.type || "multiple_choice", row.body, JSON.stringify(row.options || []), row.answerKey || null, row.score || 1]
+    [
+      row.id,
+      row.examId,
+      row.type || "multiple_choice",
+      row.body,
+      row.image || "",
+      JSON.stringify(row.options || []),
+      row.answerKey || null,
+      JSON.stringify(row.correctAnswers || []),
+      JSON.stringify(row.statements || []),
+      JSON.stringify(row.pairs || []),
+      JSON.stringify(row.shortAnswers || []),
+      JSON.stringify(row.answerRules || {}),
+      row.score || 1
+    ]
   );
 }
 
 function upsertAttempt(client, row) {
   return client.query(
-    `INSERT INTO attempts (id, exam_id, student_id, status, answers, score, started_at, submitted_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9)
+    `INSERT INTO attempts (id, exam_id, student_id, status, answers, question_order, option_orders, score, started_at, submitted_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10, $11)
      ON CONFLICT (id) DO UPDATE SET
        exam_id = EXCLUDED.exam_id,
        student_id = EXCLUDED.student_id,
        status = EXCLUDED.status,
        answers = EXCLUDED.answers,
+       question_order = EXCLUDED.question_order,
+       option_orders = EXCLUDED.option_orders,
        score = EXCLUDED.score,
        started_at = EXCLUDED.started_at,
        submitted_at = EXCLUDED.submitted_at,
        updated_at = EXCLUDED.updated_at`,
-    [row.id, row.examId, row.studentId, row.status || "not_started", JSON.stringify(row.answers || {}), row.score ? JSON.stringify(row.score) : null, row.startedAt || null, row.submittedAt || null, row.updatedAt || null]
+    [
+      row.id,
+      row.examId,
+      row.studentId,
+      row.status || "not_started",
+      JSON.stringify(row.answers || {}),
+      JSON.stringify(row.questionOrder || []),
+      JSON.stringify(row.optionOrders || {}),
+      row.score ? JSON.stringify(row.score) : null,
+      row.startedAt || null,
+      row.submittedAt || null,
+      row.updatedAt || null
+    ]
   );
 }
 
@@ -338,5 +476,39 @@ function upsertViolation(client, row) {
        message = EXCLUDED.message,
        created_at = EXCLUDED.created_at`,
     [row.id, row.studentId || null, row.examId || null, row.type, row.level || "warning", row.message || "", row.createdAt || new Date().toISOString()]
+  );
+}
+
+function upsertSession(client, row) {
+  return client.query(
+    `INSERT INTO active_sessions (id, user_id, role, user_agent, ip_address, created_at, last_seen_at, expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (id) DO UPDATE SET
+       user_id = EXCLUDED.user_id,
+       role = EXCLUDED.role,
+       user_agent = EXCLUDED.user_agent,
+       ip_address = EXCLUDED.ip_address,
+       created_at = EXCLUDED.created_at,
+       last_seen_at = EXCLUDED.last_seen_at,
+       expires_at = EXCLUDED.expires_at`,
+    [row.id, row.userId, row.role, row.userAgent || "", row.ipAddress || "", row.createdAt || new Date().toISOString(), row.lastSeenAt || new Date().toISOString(), row.expiresAt]
+  );
+}
+
+function upsertAuditLog(client, row) {
+  return client.query(
+    `INSERT INTO audit_logs (id, user_id, username, role, action, entity_type, entity_id, message, metadata, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
+     ON CONFLICT (id) DO UPDATE SET
+       user_id = EXCLUDED.user_id,
+       username = EXCLUDED.username,
+       role = EXCLUDED.role,
+       action = EXCLUDED.action,
+       entity_type = EXCLUDED.entity_type,
+       entity_id = EXCLUDED.entity_id,
+       message = EXCLUDED.message,
+       metadata = EXCLUDED.metadata,
+       created_at = EXCLUDED.created_at`,
+    [row.id, row.userId || null, row.username || "", row.role || "", row.action, row.entityType, row.entityId || null, row.message || "", JSON.stringify(row.metadata || {}), row.createdAt || new Date().toISOString()]
   );
 }
