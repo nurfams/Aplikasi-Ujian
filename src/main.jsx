@@ -22,6 +22,7 @@ import {
   Save,
   Search,
   Send,
+  Settings,
   ShieldCheck,
   Trash2,
   Upload,
@@ -61,7 +62,10 @@ async function api(path, options = {}) {
   if (!response.ok) {
     if (response.status === 401) clearSession();
     const error = await response.json().catch(() => ({}));
-    throw new Error(error.message || "Request gagal.");
+    const requestError = new Error(error.message || "Request gagal.");
+    requestError.code = error.code;
+    requestError.accessState = error.accessState;
+    throw requestError;
   }
   return response.json();
 }
@@ -302,6 +306,10 @@ function formatElectiveSubjects(student) {
   return Array.isArray(student.electiveSubjects) ? student.electiveSubjects : [];
 }
 
+function formatReligion(student) {
+  return String(student?.religion || student?.agama || "").trim();
+}
+
 function formatResultStatus(status) {
   const labels = {
     not_started: "Belum Mengerjakan",
@@ -348,6 +356,7 @@ function csvCell(value) {
 }
 
 const OPTION_KEYS = ["A", "B", "C", "D", "E"];
+const RELIGION_OPTIONS = ["Islam", "Kristen", "Katolik", "Hindu", "Buddha", "Konghucu", "Lainnya"];
 const QUESTION_TYPES = [
   { value: "multiple_choice", label: "Pilihan Ganda" },
   { value: "multiple_response", label: "Pilihan Ganda Kompleks / Checklist" },
@@ -539,6 +548,30 @@ function formatDateTime(value) {
   return value ? new Date(value).toLocaleString("id-ID") : "-";
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function downloadHtmlExcel({ filename, sheetTitle, headers, rows }) {
+  const tableRows = [
+    `<tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr>`,
+    ...rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`)
+  ].join("");
+  const html = `<!doctype html><html><head><meta charset="utf-8" /></head><body><h2>${escapeHtml(sheetTitle)}</h2><table border="1">${tableRows}</table></body></html>`;
+  const blob = new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename.endsWith(".xls") ? filename : `${filename}.xls`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 const REVIEW_STATUS_LABELS = {
   unreviewed: "Belum Dicek",
   reviewed: "Sudah Dicek",
@@ -555,11 +588,37 @@ function reviewStatusClass(status) {
   return "status-pill";
 }
 
+function ReviewStatusIcon({ status }) {
+  const label = formatReviewStatus(status);
+  const reviewed = status === "reviewed";
+  const Icon = reviewed ? CheckCircle2 : AlertTriangle;
+  return (
+    <span className={`review-status-icon ${reviewed ? "reviewed" : "warning"}`} title={label} aria-label={label}>
+      <Icon size={18} />
+    </span>
+  );
+}
+
+function formatExamStatus(status) {
+  const labels = {
+    published: "Published",
+    closed: "Closed",
+    draft: "Draft"
+  };
+  return labels[status] || status || "-";
+}
+
+function examStatusClass(status) {
+  if (status === "published") return "status-pill selected";
+  if (status === "closed") return "status-pill danger";
+  return "status-pill";
+}
+
 function downloadStudentTemplate() {
-  const headers = ["nis", "nisn", "name", "gender", "className", "username", "password", "Mapel Pilihan 1", "Mapel Pilihan 2", "Mapel Pilihan 3", "Mapel Pilihan 4", "Mapel Pilihan 5"];
+  const headers = ["nis", "nisn", "name", "gender", "agama", "className", "username", "password", "Mapel Pilihan 1", "Mapel Pilihan 2", "Mapel Pilihan 3", "Mapel Pilihan 4", "Mapel Pilihan 5"];
   const rows = [
-    ["10676", "0062721508", "AGISFA ROCHMANY ALFATH", "L", "XII.2", "10676", "", "Informatika 2", "Sejarah TL 2", "", "", ""],
-    ["10690", "0061606839", "AMELIA RASHEEDAH", "P", "XII.3", "10690", "", "Sejarah TL 1", "Sosiologi 1", "", "", ""]
+    ["10676", "0062721508", "AGISFA ROCHMANY ALFATH", "L", "Islam", "XII.2", "10676", "", "Informatika 2", "Sejarah TL 2", "", "", ""],
+    ["10690", "0061606839", "AMELIA RASHEEDAH", "P", "Kristen", "XII.3", "10690", "", "Sejarah TL 1", "Sosiologi 1", "", "", ""]
   ];
   const csv = [headers, ...rows].map((row) => row.map((cell) => `"${String(cell).replaceAll("\"", "\"\"")}"`).join(",")).join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -773,7 +832,7 @@ function PaginationControls({ page, pageSize, total, onPageChange, onPageSizeCha
 
 function StatCard({ icon: Icon, label, value }) {
   return (
-    <div className="stat-card">
+    <div className="stat-card" title={label}>
       <div className="stat-icon"><Icon size={20} /></div>
       <div>
         <div className="stat-value">{value}</div>
@@ -836,6 +895,284 @@ function Login({ onLogin }) {
         </div>
       </section>
     </main>
+  );
+}
+
+function BrowserAccessGate({ user, onAuthorized, onLogout }) {
+  const [token, setToken] = useState("");
+  const [notice, setNotice] = useState("");
+  const [loading, setLoading] = useState(false);
+  const accessState = user.accessState || {};
+  const strictMode = accessState.mode === "strict";
+
+  async function submit(event) {
+    event.preventDefault();
+    setNotice("");
+    setLoading(true);
+    try {
+      const result = await api("/browser-access/authorize", {
+        method: "POST",
+        body: JSON.stringify({ token })
+      });
+      const currentSession = readSession();
+      const nextSession = { ...currentSession, user: result.user };
+      saveSession(nextSession);
+      onAuthorized(result.user);
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <main className="login-shell">
+      <section className="login-panel access-gate-panel">
+        <div className="brand-row">
+          <div className="brand-mark"><ShieldCheck size={28} /></div>
+          <div>
+            <h1>Akses Peserta</h1>
+            <p>{user.name}</p>
+          </div>
+        </div>
+        {strictMode ? (
+          <div className="error-box">
+            Akun siswa hanya bisa membuka ujian melalui Exam Browser resmi sekolah. Silakan buka aplikasi CBT SMAN 94.
+          </div>
+        ) : (
+          <form className="login-form" onSubmit={submit}>
+            <div className="info-box">Browser biasa membutuhkan Token Akses Browser dari admin/pengawas. Jika memakai Exam Browser resmi, token ini tidak diperlukan.</div>
+            <label>
+              Token Akses Browser
+              <input value={token} onChange={(event) => setToken(event.target.value.toUpperCase())} placeholder="Contoh: BRW-ABC123" required />
+            </label>
+            {notice ? <div className="error-box">{notice}</div> : null}
+            <button type="submit" disabled={loading}>{loading ? "Memeriksa..." : "Masuk Portal"}</button>
+          </form>
+        )}
+        <button type="button" className="ghost-button full-button" onClick={onLogout}>Keluar Akun</button>
+      </section>
+    </main>
+  );
+}
+
+function AccessControlPanel({ accessControl, onChanged }) {
+  const [mode, setMode] = useState(accessControl?.studentMode || "browser_token");
+  const [expiresMinutes, setExpiresMinutes] = useState(60);
+  const [label, setLabel] = useState("Token Ulangan");
+  const [notice, setNotice] = useState("");
+  const tokens = accessControl?.browserTokens || [];
+  const activeTokens = tokens.filter((token) => token.active && (!token.expiresAt || new Date(token.expiresAt).getTime() > Date.now()));
+
+  useEffect(() => {
+    setMode(accessControl?.studentMode || "browser_token");
+  }, [accessControl?.studentMode]);
+
+  async function saveMode(nextMode = mode) {
+    setNotice("");
+    const result = await api("/access-control", {
+      method: "PUT",
+      body: JSON.stringify({ studentMode: nextMode })
+    });
+    setNotice("Mode akses peserta diperbarui.");
+    await onChanged(result);
+  }
+
+  async function createToken() {
+    setNotice("");
+    const result = await api("/access-control/browser-tokens", {
+      method: "POST",
+      body: JSON.stringify({ label, expiresMinutes })
+    });
+    setNotice("Token Akses Browser baru dibuat.");
+    await onChanged(result);
+  }
+
+  async function revokeToken(tokenId) {
+    const result = await api(`/access-control/browser-tokens/${tokenId}/revoke`, { method: "POST" });
+    setNotice("Token Akses Browser dicabut.");
+    await onChanged(result);
+  }
+
+  return (
+    <section className="panel">
+      <PanelTitle icon={ShieldCheck} title="Akses Peserta" />
+      <div className="access-control-panel">
+        <label>
+          Mode akses siswa
+          <select value={mode} onChange={(event) => { setMode(event.target.value); saveMode(event.target.value); }}>
+            <option value="strict">Wajib Exam Browser</option>
+            <option value="browser_token">Exam Browser / Token Browser</option>
+            <option value="open">Terbuka Sementara</option>
+          </select>
+        </label>
+        <p className="muted">Exam Browser resmi tidak perlu token. Browser biasa hanya diizinkan jika mode memakai token atau terbuka sementara.</p>
+        <div className="token-create-grid">
+          <label>Nama token<input value={label} onChange={(event) => setLabel(event.target.value)} /></label>
+          <label>Berlaku menit<input type="number" min="5" max="1440" value={expiresMinutes} onChange={(event) => setExpiresMinutes(event.target.value)} /></label>
+          <button type="button" onClick={createToken}>Buat Token</button>
+        </div>
+        {notice ? <div className="success-box">{notice}</div> : null}
+        <div className="browser-token-list">
+          {activeTokens.length ? activeTokens.map((token) => (
+            <article className="browser-token-item" key={token.id}>
+              <div>
+                <strong>{token.token}</strong>
+                <span>{token.label} | Berlaku sampai {formatDateTime(token.expiresAt)}</span>
+              </div>
+              <button type="button" className="ghost-button small-button" onClick={() => revokeToken(token.id)}>Cabut</button>
+            </article>
+          )) : <p className="muted">Belum ada token browser aktif.</p>}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ExamSettingsPanel({ examSettings, onChanged }) {
+  const settings = examSettings || {};
+  const activeToken = settings.activeToken || {};
+  const [form, setForm] = useState({
+    examWithoutToken: !!settings.examWithoutToken,
+    tokenIntervalMinutes: settings.tokenIntervalMinutes || 15,
+    submitUnlockMinutes: settings.submitUnlockMinutes ?? 30,
+    autoSubmitOnEnd: settings.autoSubmitOnEnd !== false,
+    requireReviewBeforePublish: !!settings.requireReviewBeforePublish,
+    requireWeight100BeforePublish: !!settings.requireWeight100BeforePublish,
+    defaultRandomizeQuestions: settings.defaultRandomizeQuestions !== false,
+    defaultRandomizeOptions: settings.defaultRandomizeOptions !== false
+  });
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    setForm({
+      examWithoutToken: !!settings.examWithoutToken,
+      tokenIntervalMinutes: settings.tokenIntervalMinutes || 15,
+      submitUnlockMinutes: settings.submitUnlockMinutes ?? 30,
+      autoSubmitOnEnd: settings.autoSubmitOnEnd !== false,
+      requireReviewBeforePublish: !!settings.requireReviewBeforePublish,
+      requireWeight100BeforePublish: !!settings.requireWeight100BeforePublish,
+      defaultRandomizeQuestions: settings.defaultRandomizeQuestions !== false,
+      defaultRandomizeOptions: settings.defaultRandomizeOptions !== false
+    });
+  }, [
+    settings.examWithoutToken,
+    settings.tokenIntervalMinutes,
+    settings.submitUnlockMinutes,
+    settings.autoSubmitOnEnd,
+    settings.requireReviewBeforePublish,
+    settings.requireWeight100BeforePublish,
+    settings.defaultRandomizeQuestions,
+    settings.defaultRandomizeOptions
+  ]);
+
+  async function save(nextForm = form) {
+    setNotice("");
+    const result = await api("/exam-settings", {
+      method: "PUT",
+      body: JSON.stringify(nextForm)
+    });
+    setNotice("Pengaturan ujian berhasil disimpan.");
+    await onChanged(result);
+  }
+
+  async function regenerateToken() {
+    const result = await api("/exam-settings/token/regenerate", { method: "POST" });
+    setNotice("Token ujian global berhasil digenerate ulang.");
+    await onChanged(result);
+  }
+
+  function update(key, value) {
+    const next = { ...form, [key]: value };
+    setForm(next);
+    save(next).catch((error) => setNotice(error.message));
+  }
+
+  return (
+    <div className="settings-stack">
+      <section className="panel">
+        <PanelTitle icon={KeyRound} title="Token Ujian Global" />
+        <div className="settings-grid">
+          <label>
+            Ujian tanpa token
+            <select value={form.examWithoutToken ? "yes" : "no"} onChange={(event) => update("examWithoutToken", event.target.value === "yes")}>
+              <option value="no">Tidak</option>
+              <option value="yes">Ya</option>
+            </select>
+          </label>
+          <label>
+            Interval token
+            <select value={form.tokenIntervalMinutes} onChange={(event) => update("tokenIntervalMinutes", Number(event.target.value))} disabled={form.examWithoutToken}>
+              <option value={15}>15 menit</option>
+              <option value={30}>30 menit</option>
+              <option value={45}>45 menit</option>
+              <option value={60}>60 menit</option>
+            </select>
+          </label>
+        </div>
+        <div className="token-display-panel">
+          <div>
+            <span>Token aktif</span>
+            <strong>{form.examWithoutToken ? "Tanpa Token" : activeToken.token || "-"}</strong>
+          </div>
+          <div>
+            <span>Berubah berikutnya</span>
+            <strong>{form.examWithoutToken ? "-" : formatDateTime(activeToken.nextChangeAt)}</strong>
+          </div>
+          <button type="button" className="ghost-button" onClick={regenerateToken} disabled={form.examWithoutToken}>Generate Sekarang</button>
+        </div>
+        <p className="muted">Token ini berlaku untuk semua mata pelajaran yang sedang aktif pada jadwal yang sama.</p>
+        {notice ? <div className={notice.includes("gagal") ? "error-box" : "success-box"}>{notice}</div> : null}
+      </section>
+
+      <section className="panel">
+        <PanelTitle icon={ClipboardList} title="Aturan Ujian dan Publish" />
+        <div className="settings-grid">
+          <label>
+            Submit tersedia
+            <select value={form.submitUnlockMinutes} onChange={(event) => update("submitUnlockMinutes", Number(event.target.value))}>
+              <option value={15}>15 menit terakhir</option>
+              <option value={30}>30 menit terakhir</option>
+              <option value={45}>45 menit terakhir</option>
+              <option value={60}>60 menit terakhir</option>
+            </select>
+          </label>
+          <label>
+            Auto-submit saat waktu habis
+            <select value={form.autoSubmitOnEnd ? "yes" : "no"} onChange={(event) => update("autoSubmitOnEnd", event.target.value === "yes")}>
+              <option value="yes">Ya</option>
+              <option value="no">Tidak</option>
+            </select>
+          </label>
+          <label>
+            Wajib review sebelum publish
+            <select value={form.requireReviewBeforePublish ? "yes" : "no"} onChange={(event) => update("requireReviewBeforePublish", event.target.value === "yes")}>
+              <option value="no">Tidak</option>
+              <option value="yes">Ya</option>
+            </select>
+          </label>
+          <label>
+            Wajib bobot 100 sebelum publish
+            <select value={form.requireWeight100BeforePublish ? "yes" : "no"} onChange={(event) => update("requireWeight100BeforePublish", event.target.value === "yes")}>
+              <option value="no">Tidak</option>
+              <option value="yes">Ya</option>
+            </select>
+          </label>
+          <label className="check-row"><input type="checkbox" checked={form.defaultRandomizeQuestions} onChange={(event) => update("defaultRandomizeQuestions", event.target.checked)} /> Default acak soal</label>
+          <label className="check-row"><input type="checkbox" checked={form.defaultRandomizeOptions} onChange={(event) => update("defaultRandomizeOptions", event.target.checked)} /> Default acak opsi</label>
+        </div>
+        <p className="muted">Pengaturan default berlaku untuk ujian baru. Ujian lama tetap memakai pengaturan yang sudah tersimpan di paket ujian masing-masing.</p>
+      </section>
+    </div>
+  );
+}
+
+function SettingsDashboard({ accessControl, examSettings, onAccessControlChanged, onExamSettingsChanged }) {
+  return (
+    <div className="page-stack">
+      <ExamSettingsPanel examSettings={examSettings} onChanged={onExamSettingsChanged} />
+      <AccessControlPanel accessControl={accessControl} onChanged={onAccessControlChanged} />
+    </div>
   );
 }
 
@@ -972,13 +1309,14 @@ function AdminDashboard({ summary, students, exams, questions, attempts, results
   );
 }
 
-function MonitoringDashboard({ attempts, students, exams, violations }) {
+function MonitoringDashboard({ attempts, students, exams, violations, activeTab = "active", onTabChange = () => {}, onChanged = () => {}, canDeleteViolations = false }) {
   const [examFilter, setExamFilter] = useState("");
   const [classFilter, setClassFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [selectedLogTarget, setSelectedLogTarget] = useState(null);
   const now = new Date();
 
   const studentById = useMemo(() => new Map(students.map((student) => [student.id, student])), [students]);
@@ -989,6 +1327,20 @@ function MonitoringDashboard({ attempts, students, exams, violations }) {
     for (const violation of violations) {
       const key = `${violation.examId}-${violation.studentId}`;
       map.set(key, (map.get(key) || 0) + 1);
+    }
+    return map;
+  }, [violations]);
+
+  const violationsByAttempt = useMemo(() => {
+    const map = new Map();
+    for (const violation of violations) {
+      const key = `${violation.examId}-${violation.studentId}`;
+      const list = map.get(key) || [];
+      list.push(violation);
+      map.set(key, list);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
     }
     return map;
   }, [violations]);
@@ -1011,6 +1363,7 @@ function MonitoringDashboard({ attempts, students, exams, violations }) {
       examTime: exam.id ? formatExamTimeRange(exam) : "-",
       schedule,
       violationCount: violationCountByAttempt.get(`${attempt.examId}-${attempt.studentId}`) || 0,
+      violationLogs: violationsByAttempt.get(`${attempt.examId}-${attempt.studentId}`) || [],
       isStale
     };
   });
@@ -1031,20 +1384,56 @@ function MonitoringDashboard({ attempts, students, exams, violations }) {
   });
 
   const paged = getPageItems(filteredRows, page, pageSize);
+  const baseStats = [
+    { icon: Users, label: "Peserta Tampil", value: filteredRows.length },
+    { icon: PlayCircle, label: "Sedang Mengerjakan", value: filteredRows.filter((item) => item.status === "in_progress").length },
+    { icon: CheckCircle2, label: "Selesai", value: filteredRows.filter((item) => item.status === "submitted").length },
+    { icon: AlertTriangle, label: "Perlu Dicek", value: filteredRows.filter((item) => item.isStale || item.violationCount).length }
+  ];
+  const violationStats = [
+    { icon: Users, label: "Peserta Tercatat", value: new Set(violations.map((item) => `${item.examId}-${item.studentId}`)).size },
+    { icon: ClipboardList, label: "Log Info", value: violations.filter((item) => normalizeViolationLevel(item.level) === "info").length },
+    { icon: AlertTriangle, label: "Peringatan", value: violations.filter((item) => normalizeViolationLevel(item.level) === "warning").length },
+    { icon: ShieldCheck, label: "Pelanggaran Berat", value: violations.filter((item) => normalizeViolationLevel(item.level) === "critical").length }
+  ];
+  const visibleStats = activeTab === "violations" ? [...baseStats, ...violationStats] : baseStats;
 
   function changeFilter(setter, value) {
     setter(value);
     setPage(1);
   }
 
+  async function forceFinishAttempt(item) {
+    if (item.status !== "in_progress") return;
+    const reason = window.prompt(`Alasan paksa selesai untuk ${item.studentName}:`, "Pelanggaran saat ujian");
+    if (reason === null) return;
+    const ok = window.confirm(`Paksa selesai ujian ${item.examCode} untuk ${item.studentName}? Jawaban terakhir akan disubmit final.`);
+    if (!ok) return;
+    await api(`/attempts/${item.id}/admin-finish`, {
+      method: "POST",
+      body: JSON.stringify({ reason })
+    });
+    await onChanged();
+  }
+
   return (
     <div className="page-stack">
-      <section className="stat-grid">
-        <StatCard icon={Users} label="Peserta Tampil" value={filteredRows.length} />
-        <StatCard icon={PlayCircle} label="Sedang Mengerjakan" value={filteredRows.filter((item) => item.status === "in_progress").length} />
-        <StatCard icon={CheckCircle2} label="Selesai" value={filteredRows.filter((item) => item.status === "submitted").length} />
-        <StatCard icon={AlertTriangle} label="Perlu Dicek" value={filteredRows.filter((item) => item.isStale || item.violationCount).length} />
+      <section className={`stat-grid monitoring-stat-grid ${activeTab === "violations" ? "eight-stats" : ""}`}>
+        {visibleStats.map((item) => (
+          <StatCard icon={item.icon} label={item.label} value={item.value} key={item.label} />
+        ))}
       </section>
+      {activeTab === "violations" ? (
+        <ViolationSummaryDashboard
+          students={students}
+          exams={exams}
+          violations={violations}
+          onOpenLogs={setSelectedLogTarget}
+          onChanged={onChanged}
+          canDeleteViolations={canDeleteViolations}
+        />
+      ) : (
+        <>
       <section className="panel">
         <div className="result-header">
           <PanelTitle icon={MonitorSmartphone} title="Monitoring Peserta Ujian" />
@@ -1093,18 +1482,16 @@ function MonitoringDashboard({ attempts, students, exams, violations }) {
           itemLabel="peserta"
         />
         <div className="table-wrap">
-          <table className="monitoring-table">
+          <table className="monitoring-active-table">
             <thead>
               <tr>
                 <th>Peserta</th>
                 <th>Kelas</th>
-                <th>Ujian</th>
-                <th>Jadwal</th>
+                <th>Ujian / Jadwal</th>
                 <th>Status</th>
-                <th>Mulai</th>
-                <th>Terakhir Aktif</th>
-                <th>Sisa Waktu</th>
+                <th>Aktivitas</th>
                 <th>Pelanggaran</th>
+                <th>Aksi</th>
               </tr>
             </thead>
             <tbody>
@@ -1112,20 +1499,32 @@ function MonitoringDashboard({ attempts, students, exams, violations }) {
                 <tr key={item.id}>
                   <td><strong>{item.studentName}</strong><br /><code>{item.nis || item.studentId}</code></td>
                   <td>{item.className}</td>
-                  <td><strong>{item.examCode}</strong><br /><span>{item.subject}</span></td>
-                  <td>{item.examDate}<br /><span>{item.examTime}</span></td>
+                  <td><strong>{item.examCode}</strong><br /><span>{item.subject}</span><br /><small>{item.examDate} | {item.examTime}</small></td>
                   <td>
                     <span className={item.isStale ? "status-pill revision" : resultStatusClass(item.status)}>
                       {item.isStale ? "Perlu Dicek" : formatResultStatus(item.status)}
                     </span>
                   </td>
-                  <td>{formatDateTime(item.startedAt)}</td>
-                  <td>{formatDateTime(item.updatedAt)}</td>
-                  <td>{item.status === "in_progress" && item.schedule.status === "active" ? formatRemainingTime(item.schedule.remainingMs) : "-"}</td>
-                  <td>{item.violationCount ? <span className="status-pill revision">{item.violationCount} log</span> : "-"}</td>
+                  <td>
+                    <span>Mulai: {formatDateTime(item.startedAt)}</span><br />
+                    <span>Aktif: {formatDateTime(item.updatedAt)}</span><br />
+                    <span>Sisa: {item.status === "in_progress" && item.schedule.status === "active" ? formatRemainingTime(item.schedule.remainingMs) : "-"}</span>
+                  </td>
+                  <td>
+                    {item.violationCount ? (
+                      <button type="button" className="log-count-button" onClick={() => setSelectedLogTarget(item)}>
+                        {item.violationCount} log
+                      </button>
+                    ) : "-"}
+                  </td>
+                  <td>
+                    <button type="button" className="ghost-button small-button monitoring-action-button" title="Paksa selesai ujian peserta ini" onClick={() => forceFinishAttempt(item)} disabled={item.status !== "in_progress"}>
+                      Selesai
+                    </button>
+                  </td>
                 </tr>
               ))}
-              {paged.items.length ? null : <tr><td colSpan="9">Belum ada peserta sesuai filter.</td></tr>}
+              {paged.items.length ? null : <tr><td colSpan="7">Belum ada peserta sesuai filter.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -1139,34 +1538,453 @@ function MonitoringDashboard({ attempts, students, exams, violations }) {
           itemLabel="peserta"
         />
       </section>
-      <section className="panel">
-        <PanelTitle icon={AlertTriangle} title="Log Pelanggaran Terbaru" />
-        <DataTable
-          headers={["Waktu", "Siswa", "Ujian", "Level", "Catatan"]}
-          rows={violations.slice(0, 12).map((item) => [
-            formatDateTime(item.createdAt),
-            item.studentName,
-            item.examCode,
-            item.level,
-            item.message
-          ])}
+        </>
+      )}
+      {selectedLogTarget ? (
+        <MonitoringLogModal
+          target={selectedLogTarget}
+          logs={selectedLogTarget.violationLogs}
+          onClose={() => setSelectedLogTarget(null)}
         />
-      </section>
+      ) : null}
     </div>
   );
 }
 
-function TeacherManager({ teachers, onChanged, onExit }) {
+function ViolationSummaryDashboard({ students, exams, violations, onOpenLogs, onChanged, canDeleteViolations }) {
+  const [examFilter, setExamFilter] = useState("");
+  const [classFilter, setClassFilter] = useState("");
+  const [levelFilter, setLevelFilter] = useState("");
+  const [query, setQuery] = useState("");
+  const [sortMode, setSortMode] = useState("critical");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [deleting, setDeleting] = useState(false);
+
+  const studentById = useMemo(() => new Map(students.map((student) => [student.id, student])), [students]);
+  const examById = useMemo(() => new Map(exams.map((exam) => [exam.id, exam])), [exams]);
+  const classOptions = [...new Set(students.map((student) => student.className).filter(Boolean))].sort((a, b) => a.localeCompare(b, "id"));
+
+  const rows = useMemo(() => {
+    const map = new Map();
+    for (const log of violations) {
+      const key = `${log.examId}-${log.studentId}`;
+      const student = studentById.get(log.studentId) || {};
+      const exam = examById.get(log.examId) || {};
+      const row = map.get(key) || {
+        id: key,
+        studentId: log.studentId,
+        examId: log.examId,
+        nis: student.nis || "",
+        studentName: log.studentName || student.name || "-",
+        className: student.className || "-",
+        examCode: log.examCode || exam.code || "-",
+        subject: exam.subject || "-",
+        examDate: exam.date || "-",
+        examTime: exam.id ? formatExamTimeRange(exam) : "-",
+        counts: { info: 0, warning: 0, critical: 0 },
+        logs: [],
+        latestAt: ""
+      };
+      const level = normalizeViolationLevel(log.level);
+      row.counts[level] += 1;
+      row.logs.push(log);
+      if (!row.latestAt || new Date(log.createdAt || 0) > new Date(row.latestAt || 0)) {
+        row.latestAt = log.createdAt || "";
+      }
+      map.set(key, row);
+    }
+
+    return [...map.values()].map((row) => {
+      row.logs.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+      row.total = row.counts.info + row.counts.warning + row.counts.critical;
+      row.reviewStatus = row.counts.critical ? "Butuh Tindak Lanjut" : row.counts.warning ? "Perlu Dicek" : "Info";
+      return row;
+    });
+  }, [violations, studentById, examById]);
+
+  const filteredRows = rows.filter((item) => {
+    const matchesExam = examFilter ? item.examId === examFilter : true;
+    const matchesClass = classFilter ? item.className === classFilter : true;
+    const matchesLevel = levelFilter ? item.counts[levelFilter] > 0 : true;
+    const haystack = [item.nis, item.studentName, item.className, item.examCode, item.subject].join(" ").toLowerCase();
+    return matchesExam && matchesClass && matchesLevel && haystack.includes(query.toLowerCase());
+  });
+
+  const sortedRows = [...filteredRows].sort((a, b) => {
+    if (sortMode === "warning") return (b.counts.warning - a.counts.warning) || (b.total - a.total);
+    if (sortMode === "total") return b.total - a.total;
+    if (sortMode === "latest") return new Date(b.latestAt || 0) - new Date(a.latestAt || 0);
+    if (sortMode === "name") return a.studentName.localeCompare(b.studentName, "id");
+    return (b.counts.critical - a.counts.critical) || (b.counts.warning - a.counts.warning) || (b.total - a.total);
+  });
+
+  const paged = getPageItems(sortedRows, page, pageSize);
+  const totalInfo = filteredRows.reduce((sum, row) => sum + row.counts.info, 0);
+  const totalWarning = filteredRows.reduce((sum, row) => sum + row.counts.warning, 0);
+  const totalCritical = filteredRows.reduce((sum, row) => sum + row.counts.critical, 0);
+
+  function changeFilter(setter, value) {
+    setter(value);
+    setPage(1);
+  }
+
+  function openLogs(row, level = "") {
+    const filteredLogs = level ? row.logs.filter((log) => normalizeViolationLevel(log.level) === level) : row.logs;
+    onOpenLogs({
+      ...row,
+      violationLogs: filteredLogs,
+      logScope: level ? formatViolationLevel(level) : "Semua Log"
+    });
+  }
+
+  function filteredLogIds() {
+    return sortedRows.flatMap((row) => (
+      levelFilter ? row.logs.filter((log) => normalizeViolationLevel(log.level) === levelFilter) : row.logs
+    )).map((log) => log.id).filter(Boolean);
+  }
+
+  function downloadViolationSummary() {
+    const rowsForExcel = sortedRows.map((item) => [
+      item.studentName,
+      item.nis,
+      item.className,
+      item.examCode,
+      item.subject,
+      item.examDate,
+      item.examTime,
+      item.counts.info,
+      item.counts.warning,
+      item.counts.critical,
+      item.total,
+      formatDateTime(item.latestAt),
+      item.reviewStatus
+    ]);
+    downloadHtmlExcel({
+      filename: `rekap-pelanggaran-cbt-${localDateKey(new Date())}.xls`,
+      sheetTitle: "Rekap Pelanggaran CBT SMAN 94",
+      headers: ["Peserta", "NIS", "Kelas", "Kode Ujian", "Mata Pelajaran", "Tanggal", "Jadwal", "Log Info", "Log Peringatan", "Log Berat", "Total Log", "Terakhir Log", "Review"],
+      rows: rowsForExcel
+    });
+  }
+
+  async function deleteFilteredLogs() {
+    const ids = filteredLogIds();
+    if (!ids.length) {
+      setNotice("Tidak ada log yang bisa dihapus dari filter saat ini.");
+      setDeleteOpen(false);
+      return;
+    }
+    setDeleting(true);
+    try {
+      const result = await api("/violations", {
+        method: "DELETE",
+        body: JSON.stringify({ ids })
+      });
+      setNotice(`${result.deleted} log pelanggaran berhasil dihapus.`);
+      setDeleteOpen(false);
+      await onChanged();
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <div className="page-stack">
+      <section className="panel">
+        <div className="result-header">
+          <PanelTitle icon={AlertTriangle} title="Rekap Pelanggaran Peserta" />
+          <div className="toolbar-actions">
+            <button type="button" className="ghost-button" onClick={downloadViolationSummary} disabled={!sortedRows.length}>
+              <Download size={18} /> Download Excel
+            </button>
+            {canDeleteViolations ? (
+              <button type="button" className="danger-button" onClick={() => setDeleteOpen(true)} disabled={!filteredLogIds().length}>
+                <Trash2 size={18} /> Hapus Log Filter
+              </button>
+            ) : null}
+          </div>
+        </div>
+        {notice ? <div className={notice.includes("berhasil") ? "success-box" : "error-box"}>{notice}</div> : null}
+        <div className="result-controls monitoring-controls violation-controls">
+          <label className="field-control">
+            <span>Ujian</span>
+            <select value={examFilter} onChange={(event) => changeFilter(setExamFilter, event.target.value)}>
+              <option value="">Semua Ujian</option>
+              {exams.map((exam) => <option value={exam.id} key={exam.id}>{exam.code} - {exam.subject}</option>)}
+            </select>
+          </label>
+          <label className="field-control">
+            <span>Kelas</span>
+            <select value={classFilter} onChange={(event) => changeFilter(setClassFilter, event.target.value)}>
+              <option value="">Semua Kelas</option>
+              {classOptions.map((className) => <option value={className} key={className}>{className}</option>)}
+            </select>
+          </label>
+          <label className="field-control">
+            <span>Level</span>
+            <select value={levelFilter} onChange={(event) => changeFilter(setLevelFilter, event.target.value)}>
+              <option value="">Semua Level</option>
+              <option value="info">Info</option>
+              <option value="warning">Peringatan</option>
+              <option value="critical">Berat</option>
+            </select>
+          </label>
+          <label className="field-control">
+            <span>Urutkan</span>
+            <select value={sortMode} onChange={(event) => setSortMode(event.target.value)}>
+              <option value="critical">Berat terbanyak</option>
+              <option value="warning">Peringatan terbanyak</option>
+              <option value="total">Total terbanyak</option>
+              <option value="latest">Log terbaru</option>
+              <option value="name">Nama A-Z</option>
+            </select>
+          </label>
+          <label className="field-control result-search-control">
+            <span>Cari Peserta</span>
+            <span className="search-box">
+              <Search size={16} />
+              <input value={query} placeholder="Cari nama, NIS, ujian..." onChange={(event) => changeFilter(setQuery, event.target.value)} />
+            </span>
+          </label>
+        </div>
+        <PaginationControls
+          page={paged.currentPage}
+          pageSize={pageSize}
+          total={sortedRows.length}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          pageSizeOptions={[25, 50, 75, 100]}
+          itemLabel="peserta"
+        />
+        <div className="table-wrap">
+          <table className="violation-summary-table">
+            <thead>
+              <tr>
+                <th>Peserta</th>
+                <th>Kelas</th>
+                <th>Ujian</th>
+                <th>Jadwal</th>
+                <th>Log Info</th>
+                <th>Log Peringatan</th>
+                <th>Log Pelanggaran Berat</th>
+                <th>Total Log</th>
+                <th>Terakhir Log</th>
+                <th>Review</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paged.items.map((item) => (
+                <tr key={item.id}>
+                  <td><strong>{item.studentName}</strong><br /><code>{item.nis || item.studentId}</code></td>
+                  <td>{item.className}</td>
+                  <td><strong>{item.examCode}</strong><br /><span>{item.subject}</span></td>
+                  <td>{item.examDate}<br /><span>{item.examTime}</span></td>
+                  <td>{renderViolationCountButton(item.counts.info, "info", () => openLogs(item, "info"))}</td>
+                  <td>{renderViolationCountButton(item.counts.warning, "warning", () => openLogs(item, "warning"))}</td>
+                  <td>{renderViolationCountButton(item.counts.critical, "critical", () => openLogs(item, "critical"))}</td>
+                  <td>{renderViolationCountButton(item.total, "total", () => openLogs(item))}</td>
+                  <td>{formatDateTime(item.latestAt)}</td>
+                  <td>{renderViolationReview(item)}</td>
+                </tr>
+              ))}
+              {paged.items.length ? null : <tr><td colSpan="10">Belum ada log sesuai filter.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <PaginationControls
+          page={paged.currentPage}
+          pageSize={pageSize}
+          total={sortedRows.length}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          pageSizeOptions={[25, 50, 75, 100]}
+          itemLabel="peserta"
+        />
+      </section>
+      {deleteOpen ? (
+        <Modal title="Hapus Log Pelanggaran" icon={Trash2} onClose={() => setDeleteOpen(false)}>
+          <div className="confirm-delete-modal">
+            <p>
+              Sistem akan menghapus <strong>{filteredLogIds().length}</strong> log pelanggaran sesuai filter yang sedang aktif.
+              Data yang sudah dihapus tidak tampil lagi di Monitoring.
+            </p>
+            <p className="muted">Saran: download Excel terlebih dahulu jika log ini masih diperlukan sebagai bukti audit.</p>
+            <div className="form-actions">
+              <button type="button" className="danger-button" onClick={deleteFilteredLogs} disabled={deleting}>
+                <Trash2 size={18} /> {deleting ? "Menghapus..." : "Ya, Hapus Log"}
+              </button>
+              <button type="button" className="ghost-button" onClick={() => setDeleteOpen(false)}>Batal</button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+    </div>
+  );
+}
+
+function normalizeViolationLevel(level) {
+  const normalized = String(level || "warning").toLowerCase();
+  if (["critical", "danger", "berat", "heavy"].includes(normalized)) return "critical";
+  if (normalized === "info") return "info";
+  return "warning";
+}
+
+function renderViolationCountButton(count, level, onClick) {
+  if (!count) return "-";
+  return (
+    <button type="button" className={`log-count-button ${level}`} onClick={onClick}>
+      {count} kali
+    </button>
+  );
+}
+
+function renderViolationReview(item) {
+  if (item.counts.critical) {
+    return (
+      <span className="review-icon danger" title="Butuh Tindak Lanjut">
+        <AlertTriangle size={20} />
+      </span>
+    );
+  }
+  if (item.counts.warning) {
+    return (
+      <span className="review-icon warning" title="Perlu Dicek">
+        <AlertTriangle size={20} />
+      </span>
+    );
+  }
+  return <span className="status-pill neutral">Info</span>;
+}
+
+function formatViolationLevel(level) {
+  const normalized = normalizeViolationLevel(level);
+  if (normalized === "critical") return "Berat";
+  if (normalized === "info") return "Info";
+  return "Peringatan";
+}
+
+function formatViolationType(type) {
+  const labels = {
+    android_app_hidden: "Aplikasi Android Keluar Fokus",
+    android_app_resumed: "Aplikasi Android Aktif Lagi",
+    android_back_blocked: "Tombol Back Ditekan",
+    connection_lost: "Koneksi Terputus",
+    connection_restored: "Koneksi Tersambung Lagi",
+    visibility_hidden: "Halaman Tidak Terlihat",
+    visibility_visible: "Halaman Terlihat Lagi",
+    window_blur: "Jendela Kehilangan Fokus",
+    possible_overlay_focus_lost: "Overlay Kehilangan Fokus",
+    overlay_permission_revoked: "Izin Overlay Dimatikan",
+    overlay_service_destroyed: "Service Overlay Berhenti",
+    overlay_exam_started: "Overlay Ujian Aktif",
+    exam_client_heartbeat_lost: "Heartbeat Exam Browser Hilang",
+    exam_screen_opened: "Halaman Ujian Dibuka",
+    exam_started: "Ujian Dimulai",
+    attempt_started: "Ujian Dimulai",
+    attempt_resumed: "Ujian Dilanjutkan",
+    submit_attempt: "Submit Ujian",
+    context_blocked: "Klik Kanan/Seleksi Diblokir",
+    refresh_question: "Muat Ulang Soal",
+    questions_reloaded: "Muat Ulang Soal"
+  };
+  return labels[type] || String(type || "Event").replaceAll("_", " ");
+}
+
+function violationLevelClass(level) {
+  const normalized = normalizeViolationLevel(level);
+  if (normalized === "critical") return "status-pill danger";
+  if (normalized === "info") return "status-pill neutral";
+  return "status-pill revision";
+}
+
+function MonitoringLogModal({ target, logs, onClose }) {
+  const latestLog = logs[0];
+  const infoCount = logs.filter((item) => normalizeViolationLevel(item.level) === "info").length;
+  const warningCount = logs.filter((item) => normalizeViolationLevel(item.level) === "warning").length;
+  const criticalCount = logs.filter((item) => normalizeViolationLevel(item.level) === "critical").length;
+
+  return (
+    <Modal title="Detail Log Pelanggaran" icon={AlertTriangle} onClose={onClose} wide>
+      <div className="monitoring-log-summary">
+        <div>
+          <span>Peserta</span>
+          <strong>{target.studentName}</strong>
+          <code>{target.nis || target.studentId}</code>
+        </div>
+        <div>
+          <span>Ujian</span>
+          <strong>{target.examCode}</strong>
+          <small>{target.subject}</small>
+        </div>
+        <div>
+          <span>Total Log</span>
+          <strong>{logs.length}</strong>
+          <small>{criticalCount} berat, {warningCount} peringatan, {infoCount} info</small>
+        </div>
+        <div>
+          <span>{target.logScope || "Terakhir"}</span>
+          <strong>{formatDateTime(latestLog?.createdAt)}</strong>
+          <small>{formatViolationType(latestLog?.type)}</small>
+        </div>
+      </div>
+      <div className="table-wrap monitoring-log-table-wrap">
+        <table className="monitoring-log-table">
+          <thead>
+            <tr>
+              <th>Waktu</th>
+              <th>Jenis</th>
+              <th>Level</th>
+              <th>Catatan</th>
+            </tr>
+          </thead>
+          <tbody>
+            {logs.map((log) => (
+              <tr key={log.id}>
+                <td>{formatDateTime(log.createdAt)}</td>
+                <td><strong>{formatViolationType(log.type)}</strong><br /><code>{log.type || "event"}</code></td>
+                <td><span className={violationLevelClass(log.level)}>{formatViolationLevel(log.level)}</span></td>
+                <td>{log.message || "-"}</td>
+              </tr>
+            ))}
+            {logs.length ? null : <tr><td colSpan="4">Belum ada log untuk peserta ini.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <p className="muted monitoring-log-note">
+        Catatan: log adalah indikator untuk pengawas. Periksa pola kejadian sebelum menyimpulkan pelanggaran berat.
+      </p>
+    </Modal>
+  );
+}
+
+function TeacherManager({ teachers, exams = [], onChanged }) {
   const emptyForm = { name: "", username: "", password: "", mapel1: "", mapel2: "", mapel3: "", mapel4: "", mapel5: "" };
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState("");
   const [notice, setNotice] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [subjectToAdd, setSubjectToAdd] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  const subjectOptions = useMemo(() => {
+    return [...new Set(exams.map((exam) => String(exam.subject || "").trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, "id"));
+  }, [exams]);
+  const selectedSubjects = [form.mapel1, form.mapel2, form.mapel3, form.mapel4, form.mapel5].map((item) => item.trim()).filter(Boolean);
+  const availableSubjectOptions = subjectOptions.filter((subject) => !selectedSubjects.includes(subject));
+  const pagedTeachers = getPageItems(teachers, page, pageSize);
 
   function reset() {
     setEditingId("");
     setForm(emptyForm);
+    setSubjectToAdd("");
   }
 
   function edit(teacher) {
@@ -1182,8 +2000,31 @@ function TeacherManager({ teachers, onChanged, onExit }) {
       mapel4: subjects[3] || "",
       mapel5: subjects[4] || ""
     });
+    setSubjectToAdd("");
     setNotice("");
     setModalOpen(true);
+  }
+
+  function setSelectedSubjects(subjects) {
+    const nextSubjects = subjects.slice(0, 5);
+    setForm((current) => ({
+      ...current,
+      mapel1: nextSubjects[0] || "",
+      mapel2: nextSubjects[1] || "",
+      mapel3: nextSubjects[2] || "",
+      mapel4: nextSubjects[3] || "",
+      mapel5: nextSubjects[4] || ""
+    }));
+  }
+
+  function addSubjectToTeacher() {
+    if (!subjectToAdd || selectedSubjects.includes(subjectToAdd) || selectedSubjects.length >= 5) return;
+    setSelectedSubjects([...selectedSubjects, subjectToAdd]);
+    setSubjectToAdd("");
+  }
+
+  function removeSubjectFromTeacher(subject) {
+    setSelectedSubjects(selectedSubjects.filter((item) => item !== subject));
   }
 
   async function submit(event) {
@@ -1192,7 +2033,7 @@ function TeacherManager({ teachers, onChanged, onExit }) {
       name: form.name,
       username: form.username,
       password: form.password,
-      subjects: [form.mapel1, form.mapel2, form.mapel3, form.mapel4, form.mapel5].map((item) => item.trim()).filter(Boolean)
+      subjects: selectedSubjects
     };
     if (editingId && !payload.password) delete payload.password;
     if (editingId) {
@@ -1235,7 +2076,6 @@ function TeacherManager({ teachers, onChanged, onExit }) {
           <div className="toolbar-actions">
             <button type="button" onClick={() => setBulkOpen(true)}><Upload size={18} /> Upload Bulk</button>
             <button type="button" onClick={() => { reset(); setModalOpen(true); }}><Plus size={18} /> Tambah Guru</button>
-            <button type="button" className="ghost-button" onClick={onExit}>Keluar</button>
           </div>
         </div>
         <PanelTitle icon={UserRound} title="Data Guru" />
@@ -1251,7 +2091,7 @@ function TeacherManager({ teachers, onChanged, onExit }) {
               </tr>
             </thead>
             <tbody>
-              {teachers.map((teacher) => (
+              {pagedTeachers.items.map((teacher) => (
                 <tr key={teacher.id}>
                   <td><strong>{teacher.name}</strong></td>
                   <td><code>{teacher.username}</code></td>
@@ -1268,6 +2108,16 @@ function TeacherManager({ teachers, onChanged, onExit }) {
             </tbody>
           </table>
         </div>
+        <PaginationControls
+          page={pagedTeachers.currentPage}
+          pageSize={pageSize}
+          total={teachers.length}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          pageSizeOptions={[10, 25, 50]}
+          itemLabel="guru"
+          compact
+        />
       </section>
 
       {modalOpen ? (
@@ -1276,14 +2126,28 @@ function TeacherManager({ teachers, onChanged, onExit }) {
             <label>Nama Guru<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></label>
             <label>Username<input value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} required /></label>
             <label>Password<input value={form.password} placeholder={editingId ? "Kosongkan jika tidak diubah" : ""} onChange={(event) => setForm({ ...form, password: event.target.value })} required={!editingId} /></label>
-            <div className="inline-fields">
-              <label>Mapel 1<input value={form.mapel1} placeholder="Contoh: Informatika" onChange={(event) => setForm({ ...form, mapel1: event.target.value })} /></label>
-              <label>Mapel 2<input value={form.mapel2} placeholder="Contoh: Matematika" onChange={(event) => setForm({ ...form, mapel2: event.target.value })} /></label>
-            </div>
-            <div className="inline-fields">
-              <label>Mapel 3<input value={form.mapel3} onChange={(event) => setForm({ ...form, mapel3: event.target.value })} /></label>
-              <label>Mapel 4<input value={form.mapel4} onChange={(event) => setForm({ ...form, mapel4: event.target.value })} /></label>
-              <label>Mapel 5<input value={form.mapel5} onChange={(event) => setForm({ ...form, mapel5: event.target.value })} /></label>
+            <div className="field-control">
+              <span>Mapel Diampu</span>
+              <div className="teacher-picker">
+                <div className="teacher-picker-row">
+                  <select value={subjectToAdd} onChange={(event) => setSubjectToAdd(event.target.value)} disabled={!availableSubjectOptions.length || selectedSubjects.length >= 5}>
+                    <option value="">{availableSubjectOptions.length ? "Pilih mapel dari daftar ujian..." : "Semua mapel sudah dipilih"}</option>
+                    {availableSubjectOptions.map((subject) => <option value={subject} key={subject}>{subject}</option>)}
+                  </select>
+                  <button type="button" className="ghost-button" onClick={addSubjectToTeacher} disabled={!subjectToAdd || selectedSubjects.length >= 5}>Tambah Mapel</button>
+                </div>
+                <div className="selected-teachers">
+                  {selectedSubjects.map((subject) => (
+                    <span className="teacher-chip" key={subject}>
+                      {subject}
+                      <button type="button" aria-label={`Hapus ${subject}`} onClick={() => removeSubjectFromTeacher(subject)}>x</button>
+                    </span>
+                  ))}
+                  {selectedSubjects.length ? null : <p className="muted">Belum ada mapel dipilih.</p>}
+                </div>
+                {subjectOptions.length ? null : <p className="muted">Belum ada daftar mapel dari Dashboard Ujian. Buat ujian/mapel terlebih dahulu agar muncul di dropdown.</p>}
+                {selectedSubjects.length >= 5 ? <p className="muted">Maksimal 5 mapel per guru.</p> : null}
+              </div>
             </div>
             <div className="form-actions">
               <button type="submit"><Save size={18} /> {editingId ? "Simpan Guru" : "Tambah Guru"}</button>
@@ -1317,8 +2181,8 @@ function TeacherManager({ teachers, onChanged, onExit }) {
   );
 }
 
-function StudentManager({ students, onChanged, onExit }) {
-  const emptyForm = { nis: "", nisn: "", name: "", gender: "", username: "", password: "", className: "", mapelPilihan1: "", mapelPilihan2: "", mapelPilihan3: "", mapelPilihan4: "", mapelPilihan5: "" };
+function StudentManager({ students, onChanged }) {
+  const emptyForm = { nis: "", nisn: "", name: "", gender: "", religion: "", username: "", password: "", className: "", mapelPilihan1: "", mapelPilihan2: "", mapelPilihan3: "", mapelPilihan4: "", mapelPilihan5: "" };
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState("");
   const [query, setQuery] = useState("");
@@ -1328,7 +2192,7 @@ function StudentManager({ students, onChanged, onExit }) {
   const [pageSize, setPageSize] = useState(50);
 
   const filtered = students.filter((student) => {
-    const haystack = `${student.nis} ${student.name} ${student.username} ${student.className} ${formatElectiveSubjects(student).join(" ")}`.toLowerCase();
+    const haystack = `${student.nis} ${student.name} ${student.username} ${student.className} ${formatReligion(student)} ${formatElectiveSubjects(student).join(" ")}`.toLowerCase();
     return haystack.includes(query.toLowerCase());
   });
   const paged = getPageItems(filtered, page, pageSize);
@@ -1341,6 +2205,7 @@ function StudentManager({ students, onChanged, onExit }) {
       nisn: student.nisn || "",
       name: student.name,
       gender: student.gender || "",
+      religion: formatReligion(student),
       username: student.username,
       password: student.password,
       className: student.className,
@@ -1366,6 +2231,7 @@ function StudentManager({ students, onChanged, onExit }) {
       nisn: form.nisn,
       name: form.name,
       gender: form.gender,
+      religion: form.religion,
       className: form.className,
       username: form.username || form.nis,
       password: form.password || form.nis,
@@ -1427,7 +2293,6 @@ function StudentManager({ students, onChanged, onExit }) {
             <button type="button" onClick={() => setModal("bulk")}><Upload size={18} /> Upload Bulk</button>
             <button type="button" onClick={() => { reset(); setModal("form"); }}><Plus size={18} /> Tambah Siswa</button>
             <button type="button" className="ghost-button" onClick={generateFilteredPasswords}><KeyRound size={18} /> Generate Password Filter</button>
-            <button type="button" className="ghost-button" onClick={onExit}>Keluar</button>
           </div>
           <label className="search-box">
             <Search size={16} />
@@ -1444,6 +2309,7 @@ function StudentManager({ students, onChanged, onExit }) {
                 <th>NISN</th>
                 <th>Nama</th>
                 <th>L/P</th>
+                <th>Agama</th>
                 <th>Kelas</th>
                 <th>Mapel Pilihan 1</th>
                 <th>Mapel Pilihan 2</th>
@@ -1461,6 +2327,7 @@ function StudentManager({ students, onChanged, onExit }) {
                   <td>{student.nisn || "-"}</td>
                   <td>{student.name}</td>
                   <td>{student.gender || "-"}</td>
+                  <td>{formatReligion(student) || "-"}</td>
                   <td>{student.className}</td>
                   <td>{formatElectiveSubjects(student)[0] || "-"}</td>
                   <td>{formatElectiveSubjects(student)[1] || "-"}</td>
@@ -1498,6 +2365,12 @@ function StudentManager({ students, onChanged, onExit }) {
             <div className="inline-fields">
               <label>Kelas<input value={form.className} onChange={(event) => setForm({ ...form, className: event.target.value })} required /></label>
               <label>L/P<input value={form.gender} onChange={(event) => setForm({ ...form, gender: event.target.value.toUpperCase() })} /></label>
+              <label>Agama
+                <select value={form.religion} onChange={(event) => setForm({ ...form, religion: event.target.value })}>
+                  <option value="">Pilih agama...</option>
+                  {RELIGION_OPTIONS.map((religion) => <option value={religion} key={religion}>{religion}</option>)}
+                </select>
+              </label>
             </div>
             <label>Nama Siswa<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></label>
             <div className="inline-fields">
@@ -1525,12 +2398,12 @@ function StudentManager({ students, onChanged, onExit }) {
         <Modal title="Upload Bulk Siswa" icon={Upload} onClose={() => setModal("")} wide>
           <div className="import-box">
             <strong>Import Excel/CSV</strong>
-            <p>Header yang didukung: `nis`, `nisn`, `name`, `gender`, `className`, `username`, `password`, `Mapel Pilihan 1`, sampai `Mapel Pilihan 5`.</p>
+            <p>Header yang didukung: `nis`, `nisn`, `name`, `gender`, `agama`, `className`, `username`, `password`, `Mapel Pilihan 1`, sampai `Mapel Pilihan 5`.</p>
             <p>Kolom `password` boleh dikosongkan. Siswa baru akan otomatis mendapat password random 6 karakter huruf/angka.</p>
             <p>Gunakan file `.xlsx` atau `.csv`. Jika file masih `.xls` lama, buka di Excel lalu `Save As` menjadi `.xlsx` terlebih dahulu.</p>
             <div className="sample-table">
-              <div>nis</div><div>nisn</div><div>name</div><div>className</div><div>Mapel Pilihan 1</div><div>Mapel Pilihan 2</div>
-              <div>10676</div><div>0062721508</div><div>AGISFA ROCHMANY ALFATH</div><div>XII.2</div><div>Informatika 2</div><div>Sejarah TL 2</div>
+              <div>nis</div><div>nisn</div><div>name</div><div>agama</div><div>className</div><div>Mapel Pilihan 1</div><div>Mapel Pilihan 2</div>
+              <div>10676</div><div>0062721508</div><div>AGISFA ROCHMANY ALFATH</div><div>Islam</div><div>XII.2</div><div>Informatika 2</div><div>Sejarah TL 2</div>
             </div>
             <button type="button" className="ghost-button" onClick={downloadStudentTemplate}><Upload size={18} /> Download Contoh CSV</button>
             <label className="file-button">
@@ -1644,7 +2517,6 @@ function ExamManager({ exams, questions = [], teachers = [], onChanged, onExit }
     endTime: "",
     durationMinutes: 90,
     submitUnlockMinutes: 30,
-    token: "",
     status: "draft",
     randomizeQuestions: true,
     randomizeOptions: true
@@ -1658,11 +2530,65 @@ function ExamManager({ exams, questions = [], teachers = [], onChanged, onExit }
   const [questionEditingId, setQuestionEditingId] = useState("");
   const [questionForm, setQuestionForm] = useState(createDefaultQuestion());
   const [teacherToAdd, setTeacherToAdd] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [dateSort, setDateSort] = useState("asc");
+  const [resetExamId, setResetExamId] = useState("");
+  const [resetParticipants, setResetParticipants] = useState([]);
+  const [resetSelectedIds, setResetSelectedIds] = useState([]);
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetStatusFilter, setResetStatusFilter] = useState("all");
+  const [resetQuery, setResetQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const reviewExam = exams.find((exam) => exam.id === reviewExamId);
   const reviewQuestions = questions.filter((question) => question.examId === reviewExamId);
+  const resetExam = exams.find((exam) => exam.id === resetExamId);
   const selectedTeachers = teachers.filter((teacher) => form.teacherIds.includes(teacher.id));
   const availableTeachers = teachers.filter((teacher) => !form.teacherIds.includes(teacher.id));
+  const questionWeightByExam = useMemo(() => {
+    const map = new Map();
+    for (const question of questions) {
+      const current = map.get(question.examId) || { count: 0, total: 0 };
+      current.count += 1;
+      current.total += Number(question.score || 0);
+      map.set(question.examId, current);
+    }
+    return map;
+  }, [questions]);
+  const visibleExams = useMemo(() => {
+    const sortValue = (exam) => {
+      const timestamp = new Date(`${exam.date || "9999-12-31"}T${exam.startTime || "00:00"}:00`).getTime();
+      return Number.isFinite(timestamp) ? timestamp : 0;
+    };
+    return exams
+      .filter((exam) => statusFilter === "all" || exam.status === statusFilter)
+      .slice()
+      .sort((a, b) => (dateSort === "asc" ? sortValue(a) - sortValue(b) : sortValue(b) - sortValue(a)));
+  }, [exams, statusFilter, dateSort]);
+  const pagedExams = getPageItems(visibleExams, page, pageSize);
+  const participantStats = useMemo(() => {
+    const scores = resetParticipants
+      .map((attempt) => Number(attempt.score?.percent))
+      .filter((score) => Number.isFinite(score));
+    return {
+      total: resetParticipants.length,
+      submitted: resetParticipants.filter((attempt) => attempt.status === "submitted").length,
+      inProgress: resetParticipants.filter((attempt) => attempt.status === "in_progress").length,
+      notStarted: resetParticipants.filter((attempt) => attempt.status !== "submitted" && attempt.status !== "in_progress").length,
+      average: scores.length ? Math.round((scores.reduce((sum, score) => sum + score, 0) / scores.length) * 100) / 100 : "-",
+      highest: scores.length ? Math.max(...scores) : "-",
+      lowest: scores.length ? Math.min(...scores) : "-"
+    };
+  }, [resetParticipants]);
+  const filteredResetParticipants = useMemo(() => {
+    const query = resetQuery.toLowerCase();
+    return resetParticipants.filter((attempt) => {
+      const statusMatch = resetStatusFilter === "all" || attempt.status === resetStatusFilter || (resetStatusFilter === "not_started" && attempt.status !== "submitted" && attempt.status !== "in_progress");
+      const text = `${attempt.studentName} ${attempt.className} ${attempt.examCode}`.toLowerCase();
+      return statusMatch && text.includes(query);
+    });
+  }, [resetParticipants, resetQuery, resetStatusFilter]);
 
   function edit(exam) {
     setEditingId(exam.id);
@@ -1675,7 +2601,6 @@ function ExamManager({ exams, questions = [], teachers = [], onChanged, onExit }
       endTime: exam.endTime || deriveEndTime(exam.startTime, exam.durationMinutes),
       durationMinutes: exam.durationMinutes,
       submitUnlockMinutes: exam.submitUnlockMinutes ?? 30,
-      token: exam.token,
       status: exam.status,
       randomizeQuestions: exam.randomizeQuestions,
       randomizeOptions: exam.randomizeOptions
@@ -1757,6 +2682,106 @@ function ExamManager({ exams, questions = [], teachers = [], onChanged, onExit }
     }
   }
 
+  async function openResetExam(exam) {
+    setResetExamId(exam.id);
+    setResetParticipants([]);
+    setResetSelectedIds([]);
+    setResetStatusFilter("all");
+    setResetQuery("");
+    setResetLoading(true);
+    setNotice("");
+    try {
+      const participants = await api(`/exams/${exam.id}/participants`);
+      setResetParticipants(participants);
+    } catch (error) {
+      setNotice(error.message);
+      setResetExamId("");
+    } finally {
+      setResetLoading(false);
+    }
+  }
+
+  function closeResetExam() {
+    setResetExamId("");
+    setResetParticipants([]);
+    setResetSelectedIds([]);
+    setResetStatusFilter("all");
+    setResetQuery("");
+  }
+
+  function toggleResetStudent(studentId) {
+    setResetSelectedIds((current) => current.includes(studentId) ? current.filter((id) => id !== studentId) : [...current, studentId]);
+  }
+
+  async function resetSelectedAttempts() {
+    if (!resetExam || !resetSelectedIds.length) return;
+    const ok = window.confirm(`Reset ${resetSelectedIds.length} peserta pada ujian ${resetExam.subject}? Jawaban dan nilai peserta terpilih akan dikosongkan.`);
+    if (!ok) return;
+    setResetLoading(true);
+    try {
+      const result = await api(`/exams/${resetExam.id}/attempts/reset`, {
+        method: "POST",
+        body: JSON.stringify({ studentIds: resetSelectedIds })
+      });
+      setNotice(`${result.reset || resetSelectedIds.length} peserta berhasil direset.`);
+      closeResetExam();
+      await onChanged();
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setResetLoading(false);
+    }
+  }
+
+  function formatParticipantStatus(status) {
+    if (status === "submitted") return "Selesai";
+    if (status === "in_progress") return "Sedang Mengerjakan";
+    return "Tidak Mengerjakan";
+  }
+
+  function downloadParticipantExcel() {
+    if (!resetExam) return;
+    const headers = ["nama", "kelas", "status", "nilai", "mulai", "submit", "update"];
+    const rows = filteredResetParticipants.map((attempt) => [
+      attempt.studentName,
+      attempt.className,
+      formatParticipantStatus(attempt.status),
+      attempt.score?.percent ?? "",
+      formatDateTime(attempt.startedAt),
+      formatDateTime(attempt.submittedAt),
+      formatDateTime(attempt.updatedAt)
+    ]);
+    downloadHtmlExcel({
+      filename: `status-peserta-${resetExam.code || resetExam.subject}.xls`,
+      sheetTitle: `Status Peserta ${resetExam.code || resetExam.subject}`,
+      headers,
+      rows
+    });
+  }
+
+  function renderParticipantButton(exam) {
+    return (
+      <button type="button" className="participant-count-button" onClick={() => openResetExam(exam)} disabled={!exam.participantCount}>
+        {exam.participantCount || 0} Peserta
+      </button>
+    );
+  }
+
+  function renderQuestionWeight(exam) {
+    const weight = questionWeightByExam.get(exam.id) || { count: 0, total: 0 };
+    const total = roundScore(weight.total);
+    const complete = weight.count > 0 && Math.abs(total - 100) < 0.01;
+    const empty = weight.count === 0;
+    return (
+      <div className="exam-weight-cell">
+        <span className={`weight-status-pill ${complete ? "complete" : empty ? "empty" : "warning"}`}>
+          {total} / 100
+        </span>
+        <small>{weight.count} soal</small>
+      </div>
+    );
+  }
+
   async function setReviewStatus(exam, reviewStatus) {
     await api(`/exams/${exam.id}`, { method: "PUT", body: JSON.stringify({ ...exam, reviewStatus }) });
     setNotice(reviewStatus === "reviewed" ? "Soal ujian ditandai sudah dicek admin." : "Soal ujian ditandai perlu revisi.");
@@ -1801,44 +2826,61 @@ function ExamManager({ exams, questions = [], teachers = [], onChanged, onExit }
         <div className="panel-toolbar">
           <div className="toolbar-actions">
             <button type="button" onClick={() => { reset(); setModalOpen(true); }}><Plus size={18} /> Tambah Ujian</button>
-            <button type="button" className="ghost-button" onClick={onExit}>Keluar</button>
           </div>
         </div>
-        <PanelTitle icon={ClipboardList} title="Daftar Ujian" />
+        <div className="exam-list-head">
+          <PanelTitle icon={ClipboardList} title="Daftar Ujian" />
+          <label className="compact-filter">
+            Status
+            <select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }}>
+              <option value="all">Semua</option>
+              <option value="draft">Draft</option>
+              <option value="published">Published</option>
+              <option value="closed">Closed</option>
+            </select>
+          </label>
+        </div>
         {notice ? <div className="success-box">{notice}</div> : null}
         <div className="table-wrap">
-          <table>
+          <table className="exam-table">
             <thead>
               <tr>
-                <th>Kode</th>
-                <th>Mapel</th>
-                <th>Guru</th>
-                <th>Tanggal</th>
-                <th>Waktu</th>
-                <th>Token</th>
-                <th>Status</th>
-                <th>Review Soal</th>
                 <th>Peserta</th>
+                <th>Mapel / Kode</th>
+                <th>Guru</th>
+                <th>
+                  <button type="button" className="table-sort-button" onClick={() => { setDateSort((value) => value === "asc" ? "desc" : "asc"); setPage(1); }}>
+                    Tanggal {dateSort === "asc" ? "ASC" : "DESC"}
+                  </button>
+                </th>
+                <th>Waktu</th>
+                <th>Bobot Soal</th>
+                <th>Review Soal</th>
+                <th>Status</th>
                 <th>Aksi</th>
               </tr>
             </thead>
             <tbody>
-              {exams.map((exam) => (
+              {pagedExams.items.map((exam) => (
                 <tr key={exam.id}>
-                  <td>{exam.code}</td>
-                  <td>{exam.subject}</td>
+                  <td>{renderParticipantButton(exam)}</td>
+                  <td>
+                    <div className="exam-subject-cell">
+                      <strong>{exam.subject}</strong>
+                      <span>{exam.code}</span>
+                    </div>
+                  </td>
                   <td>{exam.teacherNames?.join(", ") || "-"}</td>
                   <td>{exam.date}</td>
                   <td>{formatExamTimeRange(exam)}</td>
-                  <td><code>{exam.token}</code></td>
-                  <td>{exam.status}</td>
-                  <td><span className={reviewStatusClass(exam.reviewStatus)}>{formatReviewStatus(exam.reviewStatus)}</span></td>
-                  <td>{exam.participantCount}</td>
+                  <td>{renderQuestionWeight(exam)}</td>
+                  <td><ReviewStatusIcon status={exam.reviewStatus} /></td>
+                  <td><span className={examStatusClass(exam.status)}>{formatExamStatus(exam.status)}</span></td>
                   <td>
-                    <div className="row-actions">
-                      <button type="button" className="small-button" onClick={() => openQuestionReview(exam)}>Lihat Soal</button>
-                      <button type="button" className="small-button" onClick={() => edit(exam)}>Edit</button>
-                      <button type="button" className="small-button" onClick={() => setStatus(exam, exam.status === "published" ? "closed" : "published")}>
+                    <div className="row-actions exam-row-actions">
+                      <button type="button" className="small-button exam-action-button" onClick={() => openQuestionReview(exam)}>Lihat Soal</button>
+                      <button type="button" className="small-button exam-action-button" onClick={() => edit(exam)}>Edit</button>
+                      <button type="button" className="small-button exam-action-button" onClick={() => setStatus(exam, exam.status === "published" ? "closed" : "published")}>
                         {exam.status === "published" ? "Tutup" : "Publish"}
                       </button>
                       <button type="button" className="danger-button" onClick={() => remove(exam)}><Trash2 size={15} /></button>
@@ -1846,9 +2888,22 @@ function ExamManager({ exams, questions = [], teachers = [], onChanged, onExit }
                   </td>
                 </tr>
               ))}
+              {visibleExams.length ? null : (
+                <tr><td colSpan="9">Belum ada ujian sesuai filter.</td></tr>
+              )}
             </tbody>
           </table>
         </div>
+        <PaginationControls
+          page={pagedExams.currentPage}
+          pageSize={pageSize}
+          total={visibleExams.length}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          pageSizeOptions={[10, 25, 50]}
+          itemLabel="ujian"
+          compact
+        />
       </section>
 
       {modalOpen ? (
@@ -1856,7 +2911,6 @@ function ExamManager({ exams, questions = [], teachers = [], onChanged, onExit }
           <form className="student-form" onSubmit={submit}>
             <div className="inline-fields">
               <label>Kode Ujian<input value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value })} required /></label>
-              <label>Token<input value={form.token} onChange={(event) => setForm({ ...form, token: event.target.value.toUpperCase() })} required /></label>
             </div>
             <label>Mata Pelajaran<input value={form.subject} onChange={(event) => setForm({ ...form, subject: event.target.value })} required /></label>
             <div className="field-control">
@@ -1954,6 +3008,85 @@ function ExamManager({ exams, questions = [], teachers = [], onChanged, onExit }
           </div>
         </Modal>
       ) : null}
+
+      {resetExam ? (
+        <Modal title={`Peserta Ujian - ${resetExam.subject}`} icon={Users} onClose={closeResetExam} wide>
+          <div className="reset-exam-modal participant-detail-modal">
+            <div className="participant-stat-grid">
+              <div><span>Total</span><strong>{participantStats.total}</strong></div>
+              <div><span>Selesai</span><strong>{participantStats.submitted}</strong></div>
+              <div><span>Sedang Mengerjakan</span><strong>{participantStats.inProgress}</strong></div>
+              <div><span>Tidak Mengerjakan</span><strong>{participantStats.notStarted}</strong></div>
+              <div><span>Rata-rata</span><strong>{participantStats.average}</strong></div>
+              <div><span>Tertinggi</span><strong>{participantStats.highest}</strong></div>
+              <div><span>Terendah</span><strong>{participantStats.lowest}</strong></div>
+            </div>
+            <div className="participant-modal-controls">
+              <label className="compact-filter">
+                Status
+                <select value={resetStatusFilter} onChange={(event) => setResetStatusFilter(event.target.value)}>
+                  <option value="all">Semua</option>
+                  <option value="submitted">Selesai</option>
+                  <option value="in_progress">Sedang Mengerjakan</option>
+                  <option value="not_started">Tidak Mengerjakan</option>
+                </select>
+              </label>
+              <label className="search-box">
+                <Search size={17} />
+                <input value={resetQuery} onChange={(event) => setResetQuery(event.target.value)} placeholder="Cari peserta..." />
+              </label>
+              <button type="button" className="ghost-button" onClick={downloadParticipantExcel} disabled={!filteredResetParticipants.length}><Download size={18} /> Download Excel</button>
+            </div>
+            <div className="reset-actions">
+              <button type="button" className="ghost-button" onClick={() => setResetSelectedIds(filteredResetParticipants.map((attempt) => attempt.studentId))} disabled={!filteredResetParticipants.length || resetLoading}>Pilih Tampil</button>
+              <button type="button" className="ghost-button" onClick={() => setResetSelectedIds([])} disabled={!resetParticipants.length || resetLoading}>Kosongkan</button>
+              <span>{resetSelectedIds.length} dipilih untuk reset</span>
+            </div>
+            <p className="muted">Reset hanya untuk peserta yang dicentang. Jawaban, nilai, waktu mulai, dan urutan acak peserta terpilih akan dikosongkan.</p>
+            <div className="table-wrap reset-table-wrap">
+              <table className="reset-table">
+                <thead>
+                  <tr>
+                    <th></th>
+                    <th>Siswa</th>
+                    <th>Kelas</th>
+                    <th>Status</th>
+                    <th>Nilai</th>
+                    <th>Mulai</th>
+                    <th>Submit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredResetParticipants.map((attempt) => (
+                    <tr key={attempt.id}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={resetSelectedIds.includes(attempt.studentId)}
+                          onChange={() => toggleResetStudent(attempt.studentId)}
+                        />
+                      </td>
+                      <td>{attempt.studentName}</td>
+                      <td>{attempt.className}</td>
+                      <td>{formatParticipantStatus(attempt.status)}</td>
+                      <td>{attempt.score?.percent ?? "-"}</td>
+                      <td>{formatDateTime(attempt.startedAt)}</td>
+                      <td>{formatDateTime(attempt.submittedAt)}</td>
+                    </tr>
+                  ))}
+                  {filteredResetParticipants.length ? null : (
+                    <tr><td colSpan="7">{resetLoading ? "Memuat peserta..." : "Tidak ada peserta sesuai filter."}</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="form-actions">
+              <button type="button" onClick={resetSelectedAttempts} disabled={!resetSelectedIds.length || resetLoading}><RefreshCw size={18} /> Reset Peserta Terpilih</button>
+              <button type="button" className="ghost-button" onClick={closeResetExam}>Batal</button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
     </div>
   );
 }
@@ -1962,6 +3095,7 @@ function ExamParticipants({ exams, students, attempts, onChanged }) {
   const [selectedExamId, setSelectedExamId] = useState(exams[0]?.id || "");
   const [classFilter, setClassFilter] = useState("");
   const [electiveFilter, setElectiveFilter] = useState("");
+  const [religionFilter, setReligionFilter] = useState("");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -1974,11 +3108,13 @@ function ExamParticipants({ exams, students, attempts, onChanged }) {
   const selectedStudentIds = new Set(attempts.filter((attempt) => attempt.examId === selectedExamId).map((attempt) => attempt.studentId));
   const classOptions = [...new Set(students.map((student) => student.className).filter(Boolean))].sort((a, b) => a.localeCompare(b, "id"));
   const electiveOptions = [...new Set(students.flatMap((student) => formatElectiveSubjects(student)))].sort((a, b) => a.localeCompare(b, "id"));
+  const religionOptions = [...new Set(students.map((student) => formatReligion(student)).filter(Boolean))].sort((a, b) => a.localeCompare(b, "id"));
   const filteredStudents = students.filter((student) => {
     const matchesClass = classFilter ? student.className === classFilter : true;
     const matchesSubject = electiveFilter ? formatElectiveSubjects(student).includes(electiveFilter) : true;
-    const text = `${student.nis} ${student.name} ${student.className} ${formatElectiveSubjects(student).join(" ")}`.toLowerCase();
-    return matchesClass && matchesSubject && text.includes(query.toLowerCase());
+    const matchesReligion = religionFilter ? formatReligion(student) === religionFilter : true;
+    const text = `${student.nis} ${student.name} ${student.className} ${formatReligion(student)} ${formatElectiveSubjects(student).join(" ")}`.toLowerCase();
+    return matchesClass && matchesSubject && matchesReligion && text.includes(query.toLowerCase());
   });
   const paged = getPageItems(filteredStudents, page, pageSize);
 
@@ -2048,6 +3184,13 @@ function ExamParticipants({ exams, students, attempts, onChanged }) {
               {electiveOptions.map((subject) => <option value={subject} key={subject}>{subject}</option>)}
             </select>
           </label>
+          <label className="field-control">
+            <span>Agama</span>
+            <select value={religionFilter} onChange={(event) => { setReligionFilter(event.target.value); setPage(1); }}>
+              <option value="">Semua Agama</option>
+              {religionOptions.map((religion) => <option value={religion} key={religion}>{religion}</option>)}
+            </select>
+          </label>
           <label className="field-control participant-search-control">
             <span>Cari Peserta</span>
             <span className="search-box">
@@ -2069,6 +3212,7 @@ function ExamParticipants({ exams, students, attempts, onChanged }) {
               <th>NIS</th>
               <th>Nama</th>
               <th>Kelas</th>
+              <th>Agama</th>
               <th>Mapel Pilihan</th>
               <th>Status</th>
             </tr>
@@ -2088,6 +3232,7 @@ function ExamParticipants({ exams, students, attempts, onChanged }) {
                   <td><code>{student.nis}</code></td>
                   <td><strong>{student.name}</strong></td>
                   <td>{student.className}</td>
+                  <td>{formatReligion(student) || "-"}</td>
                   <td>{formatElectiveSubjects(student).join(", ") || "-"}</td>
                   <td><span className={selected ? "status-pill selected" : "status-pill"}>{selected ? "Dipilih" : "Belum"}</span></td>
                 </tr>
@@ -2130,6 +3275,7 @@ function ResultsDashboard({ results, students, exams }) {
       nisn: student.nisn || "",
       studentName: item.studentName || student.name || "-",
       className: item.className || student.className || "-",
+      religion: formatReligion(student),
       examCode: item.examCode || exam.code || "-",
       subject: item.subject || exam.subject || "-",
       electiveSubjects: formatElectiveSubjects(student)
@@ -2146,6 +3292,7 @@ function ResultsDashboard({ results, students, exams }) {
       item.nisn,
       item.studentName,
       item.className,
+      item.religion,
       item.examCode,
       item.subject,
       item.electiveSubjects.join(" ")
@@ -2165,12 +3312,13 @@ function ResultsDashboard({ results, students, exams }) {
   }
 
   function downloadFilteredResults() {
-    const headers = ["nis", "nisn", "nama", "kelas", "mapel_pilihan", "kode_ujian", "mata_pelajaran", "status", "nilai", "benar", "total", "update"];
+    const headers = ["nis", "nisn", "nama", "kelas", "agama", "mapel_pilihan", "kode_ujian", "mata_pelajaran", "status", "nilai", "benar", "total", "update"];
     const rows = filteredResults.map((item) => [
       item.nis,
       item.nisn,
       item.studentName,
       item.className,
+      item.religion,
       item.electiveSubjects.join("; "),
       item.examCode,
       item.subject,
@@ -2180,14 +3328,12 @@ function ResultsDashboard({ results, students, exams }) {
       item.score?.totalScore ?? "",
       item.updatedAt ? new Date(item.updatedAt).toLocaleString("id-ID") : ""
     ]);
-    const csv = [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "hasil-nilai-cbt-sesuai-filter.csv";
-    link.click();
-    URL.revokeObjectURL(url);
+    downloadHtmlExcel({
+      filename: "hasil-nilai-cbt-sesuai-filter.xls",
+      sheetTitle: "Hasil Nilai CBT Sesuai Filter",
+      headers,
+      rows
+    });
   }
 
   return (
@@ -2195,7 +3341,7 @@ function ResultsDashboard({ results, students, exams }) {
       <div className="result-header">
         <PanelTitle icon={CheckCircle2} title="Hasil Nilai dan Status Peserta" />
         <button type="button" className="ghost-button" onClick={downloadFilteredResults}>
-          <Download size={18} /> Download Nilai
+          <Download size={18} /> Download Excel
         </button>
       </div>
       <div className="result-summary">
@@ -2490,6 +3636,7 @@ function QuestionEditor({ form, setForm, exams, onSubmit, editingId, onCancel })
               </label>
             </div>
           ))}
+          <p className="muted">Nilai benar/salah dihitung dari akurasi semua pernyataan. Jawaban yang tidak tepat tidak mendapat bagian poin.</p>
         </div>
       ) : null}
 
@@ -2521,6 +3668,7 @@ function QuestionEditor({ form, setForm, exams, onSubmit, editingId, onCancel })
               </div>
             </div>
           ))}
+          <p className="muted">Nilai menjodohkan dihitung parsial berdasarkan jumlah pasangan yang benar dibanding total pasangan.</p>
         </div>
       ) : null}
 
@@ -2723,10 +3871,13 @@ function TeacherDashboard({ exams, questions, onQuestionCreated }) {
   const [importPreview, setImportPreview] = useState([]);
   const [questionModalOpen, setQuestionModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [copyModalOpen, setCopyModalOpen] = useState(false);
+  const [copySourceExamId, setCopySourceExamId] = useState("");
   const [query, setQuery] = useState("");
   const [viewMode, setViewMode] = useState("compact");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [generatingWeights, setGeneratingWeights] = useState(false);
 
   useEffect(() => {
     if (firstExam && !form.examId) {
@@ -2737,6 +3888,15 @@ function TeacherDashboard({ exams, questions, onQuestionCreated }) {
   const selectedExam = exams.find((exam) => exam.id === form.examId) || firstExam;
   const selectedExamId = selectedExam?.id || "";
   const selectedExamQuestions = questions.filter((question) => question.examId === selectedExamId);
+  const selectedExamTotalScoreRaw = selectedExamQuestions.reduce((sum, question) => sum + Number(question.score || 0), 0);
+  const selectedExamTotalScore = Math.round(selectedExamTotalScoreRaw * 10000) / 10000;
+  const selectedExamScoreIsComplete = selectedExamQuestions.length > 0 && Math.abs(selectedExamTotalScore - 100) < 0.01;
+  const copySourceExams = exams
+    .filter((exam) => exam.id !== selectedExamId && questions.some((question) => question.examId === exam.id))
+    .map((exam) => ({ ...exam, questionCount: questions.filter((question) => question.examId === exam.id).length }));
+  const effectiveCopySourceExamId = copySourceExamId || copySourceExams[0]?.id || "";
+  const copySourceExam = copySourceExams.find((exam) => exam.id === effectiveCopySourceExamId);
+  const copySourceQuestions = questions.filter((question) => question.examId === effectiveCopySourceExamId);
   const filteredQuestions = selectedExamQuestions.filter((question) => {
     const haystack = `${question.body} ${questionTypeLabel(question.type)} ${formatQuestionKey(question)}`.toLowerCase();
     return haystack.includes(query.toLowerCase());
@@ -2751,6 +3911,8 @@ function TeacherDashboard({ exams, questions, onQuestionCreated }) {
     setQuery("");
     setImportPreview([]);
     setNotice("");
+    setCopyModalOpen(false);
+    setCopySourceExamId("");
     resetForm(examId);
   }
 
@@ -2829,6 +3991,42 @@ function TeacherDashboard({ exams, questions, onQuestionCreated }) {
     onQuestionCreated();
   }
 
+  function openCopyQuestions() {
+    setCopySourceExamId(copySourceExams[0]?.id || "");
+    setCopyModalOpen(true);
+    setNotice("");
+  }
+
+  async function copyQuestionsFromExam() {
+    if (!selectedExamId || !effectiveCopySourceExamId || !copySourceQuestions.length) return;
+    const copiedQuestions = copySourceQuestions.map((question) => cleanQuestionForSubmit({ ...question, examId: selectedExamId }));
+    const result = await api("/questions/bulk", {
+      method: "POST",
+      body: JSON.stringify({ examId: selectedExamId, questions: copiedQuestions })
+    });
+    setNotice(`Salin soal selesai: ${result.created} soal disalin, ${result.skipped} dilewati.`);
+    setCopyModalOpen(false);
+    setCopySourceExamId("");
+    onQuestionCreated();
+  }
+
+  async function generateQuestionWeights() {
+    if (!selectedExamId || !selectedExamQuestions.length || generatingWeights) return;
+    const ok = window.confirm(`Generate bobot ${selectedExamQuestions.length} soal menjadi total 100? Bobot lama pada paket ini akan ditimpa.`);
+    if (!ok) return;
+    setGeneratingWeights(true);
+    try {
+      const result = await api("/questions/weights/generate", {
+        method: "POST",
+        body: JSON.stringify({ examId: selectedExamId, totalScore: 100 })
+      });
+      setNotice(`Bobot ${result.updated} soal berhasil digenerate. Total bobot sekarang ${result.totalScore}.`);
+      onQuestionCreated();
+    } finally {
+      setGeneratingWeights(false);
+    }
+  }
+
   return (
     <div className="page-stack">
       <section className="panel">
@@ -2846,6 +4044,12 @@ function TeacherDashboard({ exams, questions, onQuestionCreated }) {
             </label>
             <button type="button" onClick={openAddQuestion}><Plus size={18} /> Tambah Soal</button>
             <button type="button" className="ghost-button" onClick={() => { setImportPreview([]); setImportModalOpen(true); }}><Upload size={18} /> Import Soal</button>
+            <button type="button" className="ghost-button" onClick={generateQuestionWeights} disabled={!selectedExamQuestions.length || generatingWeights}>
+              {generatingWeights ? "Memproses..." : "Generate Bobot 100"}
+            </button>
+            <span className={`bank-score-pill ${selectedExamScoreIsComplete ? "complete" : "warning"}`}>
+              Total Bobot {roundScore(selectedExamTotalScore)} / 100
+            </span>
             <label className="exam-select-compact">
               <select value={selectedExamId} onChange={(event) => selectExam(event.target.value)} disabled={!exams.length}>
                 {exams.map((exam) => <option value={exam.id} key={exam.id}>Soal {exam.code} - {exam.subject}</option>)}
@@ -2859,7 +4063,11 @@ function TeacherDashboard({ exams, questions, onQuestionCreated }) {
           <div className="empty-state">
             <BookOpen size={34} />
             <strong>Soal masih kosong.</strong>
-            <p>Klik Tambah Soal untuk membuat soal manual, atau Import Soal untuk upload dari Word/CSV.</p>
+            <p>Klik Tambah Soal untuk membuat soal manual, Import Soal untuk upload dari Word/CSV, atau salin dari paket lain yang pernah dibuat.</p>
+            <div className="empty-state-actions">
+              <button type="button" onClick={openAddQuestion}><Plus size={18} /> Tambah Soal</button>
+              <button type="button" className="ghost-button" onClick={openCopyQuestions} disabled={!copySourceExams.length}><BookOpen size={18} /> Salin dari Paket Lain</button>
+            </div>
           </div>
         ) : null}
         {selectedExamQuestions.length && !filteredQuestions.length ? (
@@ -2974,6 +4182,44 @@ Bobot: 3`}</pre>
           </div>
         </Modal>
       ) : null}
+
+      {copyModalOpen ? (
+        <Modal title="Salin Soal dari Paket Lain" icon={BookOpen} onClose={() => setCopyModalOpen(false)} wide>
+          <div className="copy-question-modal">
+            <div className="info-box">
+              Soal akan diduplikasi ke paket <strong>{selectedExam?.code} - {selectedExam?.subject}</strong>. Paket asal tetap aman dan tidak berubah.
+            </div>
+            <label>
+              Paket sumber
+              <select value={effectiveCopySourceExamId} onChange={(event) => setCopySourceExamId(event.target.value)} disabled={!copySourceExams.length}>
+                {copySourceExams.map((exam) => (
+                  <option value={exam.id} key={exam.id}>{exam.code} - {exam.subject} ({exam.questionCount} soal)</option>
+                ))}
+              </select>
+            </label>
+            {copySourceExam ? (
+              <div className="copy-source-summary">
+                <strong>{copySourceQuestions.length} soal akan disalin dari {copySourceExam.code}.</strong>
+                <div className="copy-preview-list">
+                  {copySourceQuestions.slice(0, 5).map((question, index) => (
+                    <div key={question.id}>
+                      <span>Soal {index + 1}</span>
+                      <p>{question.body}</p>
+                    </div>
+                  ))}
+                </div>
+                {copySourceQuestions.length > 5 ? <p className="muted">Dan {copySourceQuestions.length - 5} soal lainnya.</p> : null}
+              </div>
+            ) : (
+              <div className="info-box">Belum ada paket lain yang memiliki soal untuk disalin.</div>
+            )}
+            <div className="form-actions">
+              <button type="button" onClick={copyQuestionsFromExam} disabled={!copySourceQuestions.length}><Save size={18} /> Salin Semua Soal</button>
+              <button type="button" className="ghost-button" onClick={() => setCopyModalOpen(false)}>Batal</button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
     </div>
   );
 }
@@ -2984,6 +4230,8 @@ function TeacherQuestionTest({ exams, questions }) {
   const [deviceMode, setDeviceMode] = useState("phone");
   const [answers, setAnswers] = useState({});
   const [submitted, setSubmitted] = useState(false);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [numberModalOpen, setNumberModalOpen] = useState(false);
 
   useEffect(() => {
     if (!selectedExamId && firstExam) setSelectedExamId(firstExam.id);
@@ -2991,6 +4239,9 @@ function TeacherQuestionTest({ exams, questions }) {
 
   const selectedExam = exams.find((exam) => exam.id === selectedExamId);
   const selectedQuestions = questions.filter((question) => question.examId === selectedExamId);
+  const currentQuestion = selectedQuestions[currentIndex];
+  const answeredCount = selectedQuestions.filter((question) => isQuestionAnswered(question, answers[question.id])).length;
+  const simulationTime = formatRemainingTime(Number(selectedExam?.durationMinutes || 90) * 60 * 1000);
   const score = submitted ? calculateSimulationScore(selectedQuestions, answers) : null;
   const issueRows = selectedQuestions
     .map((question, index) => ({ index, question, issues: questionQualityIssues(question) }))
@@ -3000,7 +4251,13 @@ function TeacherQuestionTest({ exams, questions }) {
     setSelectedExamId(examId);
     setAnswers({});
     setSubmitted(false);
+    setCurrentIndex(0);
+    setNumberModalOpen(false);
   }
+
+  useEffect(() => {
+    setCurrentIndex((index) => Math.min(index, Math.max(0, selectedQuestions.length - 1)));
+  }, [selectedQuestions.length]);
 
   function choose(questionId, value) {
     setAnswers((current) => ({ ...current, [questionId]: value }));
@@ -3021,6 +4278,133 @@ function TeacherQuestionTest({ exams, questions }) {
   function resetSimulation() {
     setAnswers({});
     setSubmitted(false);
+    setCurrentIndex(0);
+  }
+
+  function SimulationNumberGrid({ closeOnPick = false }) {
+    return (
+      <div className="question-number-grid simulation-number-grid">
+        {selectedQuestions.map((question, index) => {
+          const answered = isQuestionAnswered(question, answers[question.id]);
+          return (
+            <button
+              type="button"
+              className={`${index === currentIndex ? "active" : ""} ${answered ? "answered" : ""}`}
+              onClick={() => {
+                setCurrentIndex(index);
+                if (closeOnPick) setNumberModalOpen(false);
+              }}
+              key={question.id}
+            >
+              {index + 1}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderSimulationQuestion(question, index) {
+    if (!question) return null;
+    return (
+      <article className="question-item simulation-question active-question-card" key={question.id}>
+        <div className="active-question-head">
+          <strong>Soal {index + 1} | {questionTypeLabel(question.type)}</strong>
+          <span>{isQuestionAnswered(question, answers[question.id]) ? "Sudah dijawab" : "Belum dijawab"}</span>
+        </div>
+        <p>{question.body}</p>
+        <QuestionImage src={question.image} alt={`Gambar soal ${index + 1}`} />
+        {question.type === "multiple_response" ? (
+          <div className="answer-options">
+            {(question.options || []).map((option) => (
+              <label className="answer-option" key={option.key}>
+                <input
+                  type="checkbox"
+                  checked={Array.isArray(answers[question.id]) && answers[question.id].includes(option.key)}
+                  onChange={(event) => toggleMulti(question.id, option.key, event.target.checked)}
+                />
+                <span>{option.key}</span>
+                <div>{option.text}<QuestionImage src={option.image} alt={`Gambar opsi ${option.key}`} /></div>
+              </label>
+            ))}
+          </div>
+        ) : null}
+        {(!question.type || question.type === "multiple_choice") ? (
+          <div className="answer-options">
+            {(question.options || []).map((option) => (
+              <label className="answer-option" key={option.key}>
+                <input
+                  type="radio"
+                  name={`test-${question.id}`}
+                  checked={answers[question.id] === option.key}
+                  onChange={() => choose(question.id, option.key)}
+                />
+                <span>{option.key}</span>
+                <div>{option.text}<QuestionImage src={option.image} alt={`Gambar opsi ${option.key}`} /></div>
+              </label>
+            ))}
+          </div>
+        ) : null}
+        {question.type === "true_false" ? (
+          <div className="statement-answer-list">
+            {(question.statements || []).map((statement, statementIndex) => (
+              <div className="statement-answer" key={statement.id}>
+                <p>{statementIndex + 1}. {statement.text}</p>
+                <QuestionImage src={statement.image} alt={`Gambar pernyataan ${statementIndex + 1}`} />
+                <div className="row-actions">
+                  <label><input type="radio" name={`test-${question.id}-${statement.id}`} checked={answers[question.id]?.[statement.id] === "true"} onChange={() => chooseNested(question.id, statement.id, "true")} /> Benar</label>
+                  <label><input type="radio" name={`test-${question.id}-${statement.id}`} checked={answers[question.id]?.[statement.id] === "false"} onChange={() => chooseNested(question.id, statement.id, "false")} /> Salah</label>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {question.type === "matching" ? (
+          <div className="matching-answer-list">
+            {(question.pairs || []).map((pair, pairIndex) => {
+              const options = question.matchingOptions || (question.pairs || []).map((item) => ({ value: item.right, image: item.rightImage || "" }));
+              return (
+                <label className="matching-answer" key={pair.id}>
+                  <span>{pairIndex + 1}. {pair.left}</span>
+                  <QuestionImage src={pair.leftImage} alt={`Gambar pasangan ${pairIndex + 1}`} />
+                  <select value={answers[question.id]?.[pair.id] || ""} onChange={(event) => chooseNested(question.id, pair.id, event.target.value)}>
+                    <option value="">Pilih pasangan...</option>
+                    {options.map((option) => <option value={option.value} key={option.value}>{option.value}</option>)}
+                  </select>
+                </label>
+              );
+            })}
+          </div>
+        ) : null}
+        {question.type === "short_answer" ? (
+          <input
+            className="short-answer-input"
+            value={answers[question.id] || ""}
+            placeholder="Tulis jawaban singkat..."
+            onChange={(event) => choose(question.id, event.target.value)}
+          />
+        ) : null}
+        {question.type === "essay" ? (
+          <textarea
+            className="essay-answer-input"
+            value={answers[question.id] || ""}
+            placeholder="Tulis jawaban uraian..."
+            onChange={(event) => choose(question.id, event.target.value)}
+          />
+        ) : null}
+        {submitted ? (
+          <code>Skor soal: {roundScore(scoreSimulationQuestion(question, answers[question.id]).earned)} / {Number(question.score || 1)}</code>
+        ) : null}
+        <div className="question-step-actions">
+          <button type="button" className="ghost-button" onClick={() => setCurrentIndex((value) => Math.max(0, value - 1))} disabled={index === 0}>Sebelumnya</button>
+          {index >= selectedQuestions.length - 1 ? (
+            <button type="button" onClick={() => setSubmitted(true)} disabled={!selectedQuestions.length}><Send size={18} /> Lihat Nilai</button>
+          ) : (
+            <button type="button" onClick={() => setCurrentIndex((value) => Math.min(selectedQuestions.length - 1, value + 1))}>Berikutnya</button>
+          )}
+        </div>
+      </article>
+    );
   }
 
   return (
@@ -3084,102 +4468,39 @@ function TeacherQuestionTest({ exams, questions }) {
       {selectedQuestions.length ? (
         <section className="simulation-stage">
           <div className={`simulation-device ${deviceMode}`}>
-            <div className="simulation-device-head">
-              <strong>{selectedExam?.subject}</strong>
-              <span>{deviceMode === "phone" ? "Preview HP" : deviceMode === "tablet" ? "Preview Tablet" : "Preview Laptop"}</span>
+            <div className="simulation-device-head simulation-exam-head">
+              <div>
+                <strong>{selectedExam?.subject}</strong>
+                <span>{answeredCount}/{selectedQuestions.length} terjawab | Waktu: <code>{simulationTime}</code></span>
+              </div>
+              <div className="exam-icon-actions simulation-icon-actions">
+                <button type="button" className="ghost-button icon-button" title="Reset jawaban" aria-label="Reset jawaban" onClick={resetSimulation}><RefreshCw size={16} /></button>
+                <button type="button" className="ghost-button icon-button" title="Nomor soal" aria-label="Nomor soal" onClick={() => setNumberModalOpen(true)}><ListChecks size={16} /></button>
+              </div>
             </div>
-            <div className="simulation-paper">
-              {selectedQuestions.map((question, index) => (
-                <article className="question-item simulation-question" key={question.id}>
-                  <strong>Soal {index + 1} | {questionTypeLabel(question.type)}</strong>
-                  <p>{question.body}</p>
-                  <QuestionImage src={question.image} alt={`Gambar soal ${index + 1}`} />
-                  {question.type === "multiple_response" ? (
-                    <div className="answer-options">
-                      {(question.options || []).map((option) => (
-                        <label className="answer-option" key={option.key}>
-                          <input
-                            type="checkbox"
-                            checked={Array.isArray(answers[question.id]) && answers[question.id].includes(option.key)}
-                            onChange={(event) => toggleMulti(question.id, option.key, event.target.checked)}
-                          />
-                          <span>{option.key}</span>
-                          <div>{option.text}<QuestionImage src={option.image} alt={`Gambar opsi ${option.key}`} /></div>
-                        </label>
-                      ))}
-                    </div>
-                  ) : null}
-                  {(!question.type || question.type === "multiple_choice") ? (
-                    <div className="answer-options">
-                      {(question.options || []).map((option) => (
-                        <label className="answer-option" key={option.key}>
-                          <input
-                            type="radio"
-                            name={`test-${question.id}`}
-                            checked={answers[question.id] === option.key}
-                            onChange={() => choose(question.id, option.key)}
-                          />
-                          <span>{option.key}</span>
-                          <div>{option.text}<QuestionImage src={option.image} alt={`Gambar opsi ${option.key}`} /></div>
-                        </label>
-                      ))}
-                    </div>
-                  ) : null}
-                  {question.type === "true_false" ? (
-                    <div className="statement-answer-list">
-                      {(question.statements || []).map((statement, statementIndex) => (
-                        <div className="statement-answer" key={statement.id}>
-                          <p>{statementIndex + 1}. {statement.text}</p>
-                          <QuestionImage src={statement.image} alt={`Gambar pernyataan ${statementIndex + 1}`} />
-                          <div className="row-actions">
-                            <label><input type="radio" name={`test-${question.id}-${statement.id}`} checked={answers[question.id]?.[statement.id] === "true"} onChange={() => chooseNested(question.id, statement.id, "true")} /> Benar</label>
-                            <label><input type="radio" name={`test-${question.id}-${statement.id}`} checked={answers[question.id]?.[statement.id] === "false"} onChange={() => chooseNested(question.id, statement.id, "false")} /> Salah</label>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                  {question.type === "matching" ? (
-                    <div className="matching-answer-list">
-                      {(question.pairs || []).map((pair, pairIndex) => {
-                        const options = question.matchingOptions || (question.pairs || []).map((item) => ({ value: item.right, image: item.rightImage || "" }));
-                        return (
-                          <label className="matching-answer" key={pair.id}>
-                            <span>{pairIndex + 1}. {pair.left}</span>
-                            <QuestionImage src={pair.leftImage} alt={`Gambar pasangan ${pairIndex + 1}`} />
-                            <select value={answers[question.id]?.[pair.id] || ""} onChange={(event) => chooseNested(question.id, pair.id, event.target.value)}>
-                              <option value="">Pilih pasangan...</option>
-                              {options.map((option) => <option value={option.value} key={option.value}>{option.value}</option>)}
-                            </select>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                  {question.type === "short_answer" ? (
-                    <input
-                      className="short-answer-input"
-                      value={answers[question.id] || ""}
-                      placeholder="Tulis jawaban singkat..."
-                      onChange={(event) => choose(question.id, event.target.value)}
-                    />
-                  ) : null}
-                  {question.type === "essay" ? (
-                    <textarea
-                      className="essay-answer-input"
-                      value={answers[question.id] || ""}
-                      placeholder="Tulis jawaban uraian..."
-                      onChange={(event) => choose(question.id, event.target.value)}
-                    />
-                  ) : null}
-                  {submitted ? (
-                    <code>Skor soal: {roundScore(scoreSimulationQuestion(question, answers[question.id]).earned)} / {Number(question.score || 1)}</code>
-                  ) : null}
-                </article>
-              ))}
+            <div className="simulation-paper simulation-exam-paper">
+              {deviceMode !== "phone" ? (
+                <aside className="simulation-nav-panel">
+                  <strong>Nomor Soal</strong>
+                  <SimulationNumberGrid />
+                </aside>
+              ) : null}
+              {renderSimulationQuestion(currentQuestion, currentIndex)}
             </div>
           </div>
         </section>
+      ) : null}
+      {numberModalOpen ? (
+        <Modal title="Nomor Soal" icon={ListChecks} onClose={() => setNumberModalOpen(false)}>
+          <div className="mobile-question-picker">
+            <SimulationNumberGrid closeOnPick />
+            <div className="question-nav-legend">
+              <span><i className="legend-current" /> Dibuka</span>
+              <span><i className="legend-answered" /> Selesai</span>
+              <span><i className="legend-empty" /> Belum</span>
+            </div>
+          </div>
+        </Modal>
       ) : null}
     </div>
   );
@@ -3800,20 +5121,22 @@ function StudentDashboard({ user, onExamModeChange }) {
               <li>Jawaban tersimpan otomatis selama koneksi tersedia.</li>
               <li>Waktu ujian mengikuti jadwal sekolah, bukan waktu mulai pribadi.</li>
             </ul>
-            <label>
-              Token ujian
-              <input
-                placeholder="Masukkan token ujian"
-                value={tokenByExam[selectedExam.exam.id] || ""}
-                onChange={(event) => setTokenByExam({ ...tokenByExam, [selectedExam.exam.id]: event.target.value })}
-              />
-            </label>
+            {selectedExam.tokenRequired ? (
+              <label>
+                Token ujian
+                <input
+                  placeholder="Masukkan token ujian"
+                  value={tokenByExam[selectedExam.exam.id] || ""}
+                  onChange={(event) => setTokenByExam({ ...tokenByExam, [selectedExam.exam.id]: event.target.value.toUpperCase() })}
+                />
+              </label>
+            ) : <div className="info-box">Ujian ini tidak membutuhkan token. Pastikan nama dan mata pelajaran sudah benar sebelum lanjut.</div>}
             <label className="inline-check">
               <input type="checkbox" checked={rulesAccepted} onChange={(event) => setRulesAccepted(event.target.checked)} />
               Saya memahami dan menyetujui aturan ujian.
             </label>
             <div className="form-actions">
-              <button type="button" disabled={!rulesAccepted || !(tokenByExam[selectedExam.exam.id] || "").trim()} onClick={() => start(selectedExam.exam.id)}>
+              <button type="button" disabled={!rulesAccepted || (selectedExam.tokenRequired && !(tokenByExam[selectedExam.exam.id] || "").trim())} onClick={() => start(selectedExam.exam.id)}>
                 <PlayCircle size={18} /> Lanjut Ujian
               </button>
               <button type="button" className="ghost-button" onClick={() => setSelectedExam(null)}>Batal</button>
@@ -3859,7 +5182,10 @@ function App() {
   const [violations, setViolations] = useState([]);
   const [attempts, setAttempts] = useState([]);
   const [results, setResults] = useState([]);
+  const [accessControl, setAccessControl] = useState({ studentMode: "browser_token", browserTokens: [] });
+  const [examSettings, setExamSettings] = useState({ examWithoutToken: false, tokenIntervalMinutes: 15, submitUnlockMinutes: 30 });
   const [studentExamActive, setStudentExamActive] = useState(false);
+  const [monitoringTab, setMonitoringTab] = useState("active");
 
   const roleLabel = useMemo(() => {
     if (!user) return "";
@@ -3877,7 +5203,8 @@ function App() {
         { view: "exams", label: "Ujian", icon: ClipboardList },
         { view: "examParticipants", label: "Peserta Ujian", icon: Users },
         { view: "results", label: "Hasil", icon: CheckCircle2 },
-        { view: "monitoring", label: "Monitoring", icon: MonitorSmartphone }
+        { view: "monitoring", label: "Monitoring", icon: MonitorSmartphone },
+        { view: "settings", label: "Pengaturan", icon: Settings }
       ];
     }
     if (user.role === "guru") {
@@ -3896,10 +5223,22 @@ function App() {
     return [{ view: "dashboard", label: "Portal Peserta", icon: ShieldCheck }];
   }, [user]);
 
-  async function refresh() {
+  async function refresh(scope = "full") {
     if (!user || user.role === "siswa") return;
     try {
-      const [summaryData, studentsData, teachersData, examsData, questionsData, violationsData, attemptsData, resultsData] = await Promise.all([
+      if (scope === "monitoring") {
+        const [summaryData, violationsData, attemptsData] = await Promise.all([
+          api("/summary"),
+          api("/violations"),
+          api("/attempts")
+        ]);
+        setSummary(summaryData);
+        setViolations(violationsData);
+        setAttempts(attemptsData);
+        return;
+      }
+
+      const [summaryData, studentsData, teachersData, examsData, questionsData, violationsData, attemptsData, resultsData, accessControlData, examSettingsData] = await Promise.all([
         api("/summary"),
         api("/students"),
         api("/teachers"),
@@ -3907,7 +5246,9 @@ function App() {
         api("/questions"),
         api("/violations"),
         api("/attempts"),
-        api("/results")
+        api("/results"),
+        api("/access-control"),
+        api("/exam-settings")
       ]);
       setSummary(summaryData);
       setStudents(studentsData);
@@ -3917,6 +5258,8 @@ function App() {
       setViolations(violationsData);
       setAttempts(attemptsData);
       setResults(resultsData);
+      setAccessControl(accessControlData);
+      setExamSettings(examSettingsData);
     } catch {
       if (!readSession()) {
         setUser(null);
@@ -3933,7 +5276,7 @@ function App() {
     if (!user || user.role === "siswa") return undefined;
     const refreshMs = view === "monitoring" || user.role === "pengawas" ? 5000 : 30000;
     const timer = window.setInterval(() => {
-      refresh().catch(() => {});
+      refresh(view === "monitoring" || user.role === "pengawas" ? "monitoring" : "full").catch(() => {});
     }, refreshMs);
     return () => window.clearInterval(timer);
   }, [user, view]);
@@ -3947,6 +5290,16 @@ function App() {
     setStudentExamActive(false);
   }
 
+  function updateUser(nextUser) {
+    const currentSession = readSession();
+    if (currentSession?.token) saveSession({ ...currentSession, user: nextUser });
+    setUser(nextUser);
+  }
+
+  if (user.role === "siswa" && user.accessState?.required && !user.accessState?.granted) {
+    return <BrowserAccessGate user={user} onAuthorized={updateUser} onLogout={logout} />;
+  }
+
   function renderContent() {
     if (user.role === "guru") {
       if (view === "results") return <ResultsDashboard results={results} students={students} exams={exams} />;
@@ -3958,13 +5311,13 @@ function App() {
     }
     if (user.role === "pengawas") {
       if (view === "results") return <ResultsDashboard results={results} students={students} exams={exams} />;
-      return <MonitoringDashboard attempts={attempts} students={students} exams={exams} violations={violations} />;
+      return <MonitoringDashboard attempts={attempts} students={students} exams={exams} violations={violations} activeTab={monitoringTab} onTabChange={setMonitoringTab} onChanged={refresh} canDeleteViolations={false} />;
     }
     if (view === "students") {
       return <StudentManager students={students} onChanged={refresh} onExit={() => setView("dashboard")} />;
     }
     if (view === "teachers") {
-      return <TeacherManager teachers={teachers} onChanged={refresh} onExit={() => setView("dashboard")} />;
+      return <TeacherManager teachers={teachers} exams={exams} onChanged={refresh} />;
     }
     if (view === "cards") {
       return <ParticipantCards students={students} />;
@@ -3979,7 +5332,10 @@ function App() {
       return <ResultsDashboard results={results} students={students} exams={exams} />;
     }
     if (view === "monitoring") {
-      return <MonitoringDashboard attempts={attempts} students={students} exams={exams} violations={violations} />;
+      return <MonitoringDashboard attempts={attempts} students={students} exams={exams} violations={violations} activeTab={monitoringTab} onTabChange={setMonitoringTab} onChanged={refresh} canDeleteViolations={user.role === "admin"} />;
+    }
+    if (view === "settings") {
+      return <SettingsDashboard accessControl={accessControl} examSettings={examSettings} onAccessControlChanged={setAccessControl} onExamSettingsChanged={setExamSettings} />;
     }
     return <AdminDashboard summary={summary} students={students} exams={exams} questions={questions} attempts={attempts} results={results} violations={violations} />;
   }
@@ -3989,7 +5345,25 @@ function App() {
     if (user.role === "guru" && view === "results") return "Dashboard Hasil";
     if (user.role === "guru") return "Dashboard Bank Soal";
     if (user.role === "pengawas" || view === "monitoring") return "Dashboard Monitoring";
+    if (view === "settings") return "Pengaturan Ujian";
     return "Dashboard Aplikasi Ujian";
+  }
+
+  function renderTopbarActions() {
+    const isMonitoring = user.role === "pengawas" || view === "monitoring";
+    if (!isMonitoring || studentExamActive) return null;
+    return (
+      <div className="topbar-actions">
+        <div className="exam-tabs topbar-tabs">
+          <button type="button" className={monitoringTab === "active" ? "active" : ""} onClick={() => setMonitoringTab("active")}>
+            Monitoring Aktif
+          </button>
+          <button type="button" className={monitoringTab === "violations" ? "active" : ""} onClick={() => setMonitoringTab("violations")}>
+            Pelanggaran
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -4012,18 +5386,25 @@ function App() {
             );
           })}
         </nav>
+        <div className="sidebar-footer">
+          <div className="sidebar-user">
+            <span>{user.name || user.username}</span>
+            <strong>{roleLabel}</strong>
+          </div>
+          <button className="sidebar-logout-button" type="button" onClick={logout}>
+            <LogOut size={18} /> Logout
+          </button>
+        </div>
       </aside>
       <section className="main-section">
         <header className="topbar">
           <div>
             <span className="eyebrow">{roleLabel}</span>
-            <h1>{pageTitle()}</h1>
+            <div className="topbar-title-row">
+              <h1>{pageTitle()}</h1>
+              {renderTopbarActions()}
+            </div>
           </div>
-          {!studentExamActive ? (
-            <button className="ghost-button" type="button" onClick={logout}>
-              <LogOut size={18} /> Keluar
-            </button>
-          ) : null}
         </header>
         {renderContent()}
       </section>

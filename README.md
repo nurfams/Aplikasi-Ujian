@@ -38,6 +38,7 @@ PORT=4100
 DATABASE_URL=postgres://postgres:PASSWORD_POSTGRES_ANDA@localhost:5432/cbt_sman94
 AUTH_SECRET=ISI_DENGAN_RANDOM_SECRET_PANJANG
 TOKEN_TTL_HOURS=8
+EXAM_CLIENT_KEY=GANTI_DENGAN_KEY_RAHASIA_EXAM_BROWSER
 ```
 
 Buat database `cbt_sman94` lewat pgAdmin atau PowerShell:
@@ -53,6 +54,33 @@ http://127.0.0.1:4100/api/health
 ```
 
 Jika aktif, respons API akan menampilkan `storage: "postgresql"`.
+
+## Akses Exam Browser
+
+Siswa dari browser biasa dapat diwajibkan memasukkan `Token Akses Browser` yang dibuat admin di Dashboard. Aplikasi Exam Browser resmi tidak perlu token browser, tetapi harus mengirim header berikut saat login:
+
+```text
+x-cbt-exam-client: sman94-exam-browser
+x-cbt-exam-client-key: nilai_EXAM_CLIENT_KEY_di_env
+```
+
+Mode akses siswa di Dashboard admin:
+
+```text
+Wajib Exam Browser
+Exam Browser / Token Browser
+Terbuka Sementara
+```
+
+Untuk produksi, isi `EXAM_CLIENT_KEY` dengan nilai rahasia yang panjang dan berbeda dari contoh development.
+
+Project Android awal tersedia di:
+
+```text
+android-exam-browser/
+```
+
+Buka folder tersebut dengan Android Studio untuk build APK. Konfigurasi alamat server ada di `android-exam-browser/app/build.gradle.kts`.
 
 ## Akun demo
 

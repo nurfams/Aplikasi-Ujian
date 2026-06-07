@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS students (
   nisn TEXT,
   name TEXT NOT NULL,
   gender TEXT,
+  religion TEXT,
   username TEXT NOT NULL UNIQUE,
   password TEXT NOT NULL,
   class_name TEXT NOT NULL,
@@ -27,6 +28,7 @@ CREATE TABLE IF NOT EXISTS students (
 ALTER TABLE students ADD COLUMN IF NOT EXISTS elective_subjects JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE students ADD COLUMN IF NOT EXISTS nisn TEXT;
 ALTER TABLE students ADD COLUMN IF NOT EXISTS gender TEXT;
+ALTER TABLE students ADD COLUMN IF NOT EXISTS religion TEXT;
 
 CREATE TABLE IF NOT EXISTS exams (
   id TEXT PRIMARY KEY,
@@ -99,8 +101,15 @@ CREATE TABLE IF NOT EXISTS violations (
   type TEXT NOT NULL,
   level TEXT NOT NULL DEFAULT 'warning',
   message TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  dedup_key TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ
 );
+
+ALTER TABLE violations ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE violations ADD COLUMN IF NOT EXISTS dedup_key TEXT;
+ALTER TABLE violations ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS active_sessions (
   id TEXT PRIMARY KEY,
@@ -108,9 +117,24 @@ CREATE TABLE IF NOT EXISTS active_sessions (
   role TEXT NOT NULL,
   user_agent TEXT,
   ip_address TEXT,
+  access_method TEXT NOT NULL DEFAULT 'ordinary_browser',
+  exam_client_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  browser_token_id TEXT,
+  browser_access_granted_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at TIMESTAMPTZ NOT NULL
+);
+
+ALTER TABLE active_sessions ADD COLUMN IF NOT EXISTS access_method TEXT NOT NULL DEFAULT 'ordinary_browser';
+ALTER TABLE active_sessions ADD COLUMN IF NOT EXISTS exam_client_verified BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE active_sessions ADD COLUMN IF NOT EXISTS browser_token_id TEXT;
+ALTER TABLE active_sessions ADD COLUMN IF NOT EXISTS browser_access_granted_at TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS app_settings (
+  id TEXT PRIMARY KEY,
+  value JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS audit_logs (
@@ -127,6 +151,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_students_class_name ON students(class_name);
+CREATE INDEX IF NOT EXISTS idx_students_religion ON students(religion);
 CREATE INDEX IF NOT EXISTS idx_exams_status ON exams(status);
 CREATE INDEX IF NOT EXISTS idx_questions_exam_id ON questions(exam_id);
 CREATE INDEX IF NOT EXISTS idx_attempts_exam_id ON attempts(exam_id);
@@ -134,6 +159,7 @@ CREATE INDEX IF NOT EXISTS idx_attempts_student_id ON attempts(student_id);
 CREATE INDEX IF NOT EXISTS idx_attempts_status ON attempts(status);
 CREATE INDEX IF NOT EXISTS idx_violations_exam_id ON violations(exam_id);
 CREATE INDEX IF NOT EXISTS idx_violations_student_id ON violations(student_id);
+CREATE INDEX IF NOT EXISTS idx_violations_dedup_key ON violations(dedup_key);
 CREATE INDEX IF NOT EXISTS idx_active_sessions_user_id ON active_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_active_sessions_expires_at ON active_sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);

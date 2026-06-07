@@ -4,7 +4,16 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { initDatabase, postgresEnabled, readStoreFromPostgres, writeStoreToPostgres } from "./db.js";
+import {
+  deleteSessionFromPostgres,
+  initDatabase,
+  postgresEnabled,
+  readStoreFromPostgres,
+  saveAttemptToPostgres,
+  saveViolationToPostgres,
+  touchSessionInPostgres,
+  writeStoreToPostgres
+} from "./db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -15,6 +24,10 @@ const port = Number(process.env.PORT || 4100);
 const authSecret = process.env.AUTH_SECRET || "dev-secret-ganti-saat-produksi";
 const tokenTtlMs = Number(process.env.TOKEN_TTL_HOURS || 8) * 60 * 60 * 1000;
 const schoolTimezoneOffset = process.env.SCHOOL_TIMEZONE_OFFSET || "+07:00";
+const examClientKey = process.env.EXAM_CLIENT_KEY || "dev-exam-client-key";
+const accessTokenChars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const examClientHeartbeatTimeoutMs = Number(process.env.EXAM_CLIENT_HEARTBEAT_TIMEOUT_SECONDS || 25) * 1000;
+const examClientHeartbeatRepeatMs = Number(process.env.EXAM_CLIENT_HEARTBEAT_REPEAT_SECONDS || 120) * 1000;
 
 app.use(cors());
 app.use(express.json({ limit: "8mb" }));
@@ -27,9 +40,9 @@ const seed = {
     { id: "s-10676", role: "siswa", name: "AGISFA ROCHMANY ALFATH", username: "10676", password: "10676", className: "XII INFOR 1" }
   ],
   students: [
-    { id: "s-10676", nis: "10676", name: "AGISFA ROCHMANY ALFATH", username: "10676", password: "10676", className: "XII INFOR 1", room: "Lab 1", session: "Sesi 1", electiveSubjects: ["Informatika 2", "Sejarah TL 2"] },
-    { id: "s-10690", nis: "10690", name: "AMELIA RASHEEDAH", username: "10690", password: "10690", className: "XII INFOR 1", room: "Lab 1", session: "Sesi 1", electiveSubjects: ["Sejarah TL 1", "Sosiologi 1"] },
-    { id: "s-10693", nis: "10693", name: "AMY JUTTA FIRENZE", username: "10693", password: "10693", className: "XII INFOR 1", room: "Lab 1", session: "Sesi 1", electiveSubjects: ["Sejarah TL 2"] }
+    { id: "s-10676", nis: "10676", name: "AGISFA ROCHMANY ALFATH", username: "10676", password: "10676", className: "XII INFOR 1", religion: "Islam", room: "Lab 1", session: "Sesi 1", electiveSubjects: ["Informatika 2", "Sejarah TL 2"] },
+    { id: "s-10690", nis: "10690", name: "AMELIA RASHEEDAH", username: "10690", password: "10690", className: "XII INFOR 1", religion: "Islam", room: "Lab 1", session: "Sesi 1", electiveSubjects: ["Sejarah TL 1", "Sosiologi 1"] },
+    { id: "s-10693", nis: "10693", name: "AMY JUTTA FIRENZE", username: "10693", password: "10693", className: "XII INFOR 1", religion: "Islam", room: "Lab 1", session: "Sesi 1", electiveSubjects: ["Sejarah TL 2"] }
   ],
   exams: [
     {
@@ -71,7 +84,22 @@ const seed = {
   ],
   violations: [
     { id: "v-1", studentId: "s-10676", examId: "exam-inf-xii", type: "heartbeat_ready", level: "info", message: "Client siap mengirim heartbeat saat ujian.", createdAt: "2026-06-02T07:00:00.000Z" }
-  ]
+  ],
+  accessControl: {
+    studentMode: "browser_token",
+    browserTokens: []
+  },
+  examSettings: {
+    examWithoutToken: false,
+    tokenIntervalMinutes: 15,
+    tokenSalt: "seed-token-sman94",
+    submitUnlockMinutes: 30,
+    autoSubmitOnEnd: true,
+    requireReviewBeforePublish: false,
+    requireWeight100BeforePublish: false,
+    defaultRandomizeQuestions: true,
+    defaultRandomizeOptions: true
+  }
 };
 
 async function ensureStore() {
@@ -108,6 +136,55 @@ async function writeStore(store) {
     return;
   }
   await fs.writeFile(storePath, JSON.stringify(normalized, null, 2), "utf8");
+}
+
+async function persistAttemptChange(store, attempt) {
+  if (postgresEnabled) {
+    await saveAttemptToPostgres(attempt);
+    return;
+  }
+  await writeStore(store);
+}
+
+async function persistViolationChange(store, violation) {
+  if (!violation) return;
+  if (postgresEnabled) {
+    await saveViolationToPostgres(violation);
+    return;
+  }
+  await writeStore(store);
+}
+
+async function persistAttemptAndViolationChanges(store, attempts = [], violations = []) {
+  if (!attempts.length && !violations.length) return;
+  if (!postgresEnabled) {
+    await writeStore(store);
+    return;
+  }
+  const uniqueAttempts = [...new Map(attempts.filter(Boolean).map((attempt) => [attempt.id, attempt])).values()];
+  const uniqueViolations = [...new Map(violations.filter(Boolean).map((violation) => [violation.id, violation])).values()];
+  for (const attempt of uniqueAttempts) {
+    await saveAttemptToPostgres(attempt);
+  }
+  for (const violation of uniqueViolations) {
+    await saveViolationToPostgres(violation);
+  }
+}
+
+async function persistSessionTouch(store, session) {
+  if (postgresEnabled) {
+    await touchSessionInPostgres(session.id, session.lastSeenAt);
+    return;
+  }
+  await writeStore(store);
+}
+
+async function persistSessionDelete(store, sessionId) {
+  if (postgresEnabled) {
+    await deleteSessionFromPostgres(sessionId);
+    return;
+  }
+  await writeStore(store);
 }
 
 function publicUser(user) {
@@ -149,14 +226,135 @@ function createId(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+function normalizeAccessControl(accessControl = {}) {
+  const validModes = new Set(["strict", "browser_token", "open"]);
+  return {
+    studentMode: validModes.has(accessControl.studentMode) ? accessControl.studentMode : "browser_token",
+    browserTokens: Array.isArray(accessControl.browserTokens) ? accessControl.browserTokens.map((token) => ({
+      id: token.id || createId("browser-token"),
+      token: String(token.token || "").trim().toUpperCase(),
+      label: token.label || "Token Browser",
+      active: token.active !== false,
+      createdAt: token.createdAt || new Date().toISOString(),
+      expiresAt: token.expiresAt || new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      createdBy: token.createdBy || ""
+    })).filter((token) => token.token) : []
+  };
+}
+
+function normalizeExamSettings(settings = {}) {
+  const validIntervals = new Set([15, 30, 45, 60]);
+  const interval = Number(settings.tokenIntervalMinutes || 15);
+  const submitUnlockMinutes = Math.max(0, Math.min(120, Number(settings.submitUnlockMinutes ?? 30)));
+  return {
+    examWithoutToken: !!settings.examWithoutToken,
+    tokenIntervalMinutes: validIntervals.has(interval) ? interval : 15,
+    tokenSalt: String(settings.tokenSalt || crypto.randomBytes(16).toString("hex")),
+    submitUnlockMinutes,
+    autoSubmitOnEnd: settings.autoSubmitOnEnd !== false,
+    requireReviewBeforePublish: !!settings.requireReviewBeforePublish,
+    requireWeight100BeforePublish: !!settings.requireWeight100BeforePublish,
+    defaultRandomizeQuestions: settings.defaultRandomizeQuestions !== false,
+    defaultRandomizeOptions: settings.defaultRandomizeOptions !== false
+  };
+}
+
+function createTokenFromDigest(digest, length = 6) {
+  let token = "";
+  for (let index = 0; index < length; index += 1) {
+    token += accessTokenChars[digest[index] % accessTokenChars.length];
+  }
+  return token;
+}
+
+function getGlobalExamToken(settings = {}, nowMs = Date.now()) {
+  const normalized = normalizeExamSettings(settings);
+  const intervalMs = normalized.tokenIntervalMinutes * 60 * 1000;
+  const slot = Math.floor(nowMs / intervalMs);
+  const slotStartMs = slot * intervalMs;
+  const digest = crypto
+    .createHmac("sha256", authSecret)
+    .update(`${normalized.tokenSalt}:${slot}`)
+    .digest();
+  return {
+    token: createTokenFromDigest(digest),
+    intervalMinutes: normalized.tokenIntervalMinutes,
+    generatedAt: new Date(slotStartMs).toISOString(),
+    nextChangeAt: new Date(slotStartMs + intervalMs).toISOString(),
+    serverTime: new Date(nowMs).toISOString()
+  };
+}
+
+function validateGlobalExamToken(store, tokenValue) {
+  const settings = normalizeExamSettings(store.examSettings);
+  if (settings.examWithoutToken) return true;
+  const expected = getGlobalExamToken(settings).token;
+  return String(tokenValue || "").trim().toUpperCase() === expected;
+}
+
+function createBrowserAccessToken(length = 6) {
+  let token = "BRW-";
+  for (let index = 0; index < length; index += 1) {
+    token += accessTokenChars[Math.floor(Math.random() * accessTokenChars.length)];
+  }
+  return token;
+}
+
+function isExamClientRequest(req) {
+  const clientId = String(req.headers["x-cbt-exam-client"] || "").trim();
+  const clientKey = String(req.headers["x-cbt-exam-client-key"] || "").trim();
+  return clientId === "sman94-exam-browser" && clientKey && clientKey === examClientKey;
+}
+
+function getActiveBrowserToken(accessControl, tokenValue) {
+  const value = String(tokenValue || "").trim().toUpperCase();
+  const now = Date.now();
+  return normalizeAccessControl(accessControl).browserTokens.find((token) => (
+    token.active && token.token === value && (!token.expiresAt || new Date(token.expiresAt).getTime() > now)
+  ));
+}
+
+function getStudentAccessState(store, session) {
+  const accessControl = normalizeAccessControl(store.accessControl);
+  if (!session || session.role !== "siswa") {
+    return { required: false, granted: true, mode: accessControl.studentMode, method: "staff" };
+  }
+  if (accessControl.studentMode === "open") {
+    return { required: false, granted: true, mode: "open", method: session.accessMethod || "open" };
+  }
+  if (session.examClientVerified) {
+    return { required: false, granted: true, mode: accessControl.studentMode, method: "exam_browser" };
+  }
+  if (accessControl.studentMode === "browser_token" && session.browserAccessGrantedAt) {
+    const browserToken = accessControl.browserTokens.find((token) => (
+      token.id === session.browserTokenId && token.active && (!token.expiresAt || new Date(token.expiresAt).getTime() > Date.now())
+    ));
+    if (browserToken) return { required: false, granted: true, mode: "browser_token", method: "browser_token" };
+  }
+  return {
+    required: true,
+    granted: false,
+    mode: accessControl.studentMode,
+    method: "ordinary_browser",
+    message: accessControl.studentMode === "strict"
+      ? "Akun siswa hanya bisa digunakan melalui Exam Browser resmi sekolah."
+      : "Masukkan Token Akses Browser dari admin/pengawas untuk memakai browser biasa."
+  };
+}
+
 function createLoginSession(req, store, user) {
   const now = Date.now();
+  const examClientVerified = user.role === "siswa" && isExamClientRequest(req);
   const session = {
     id: createId("sess"),
     userId: user.id,
     role: user.role,
     userAgent: String(req.headers["user-agent"] || "").slice(0, 300),
     ipAddress: String(req.ip || req.socket?.remoteAddress || "").slice(0, 80),
+    accessMethod: examClientVerified ? "exam_browser" : user.role === "siswa" ? "ordinary_browser" : "staff",
+    examClientVerified,
+    browserTokenId: "",
+    browserAccessGrantedAt: null,
     createdAt: new Date(now).toISOString(),
     lastSeenAt: new Date(now).toISOString(),
     expiresAt: new Date(now + tokenTtlMs).toISOString()
@@ -230,6 +428,8 @@ function normalizeStore(store) {
   store.violations ??= [];
   store.sessions ??= [];
   store.auditLogs ??= [];
+  store.accessControl = normalizeAccessControl(store.accessControl);
+  store.examSettings = normalizeExamSettings(store.examSettings);
 
   for (const exam of store.exams) {
     exam.status ??= "draft";
@@ -238,9 +438,9 @@ function normalizeStore(store) {
     exam.reviewStatus ??= "unreviewed";
     exam.teacherIds = normalizeTeacherIds(exam);
     exam.teacherId = exam.teacherIds[0] || exam.teacherId || "";
-    exam.submitUnlockMinutes = Number.isFinite(Number(exam.submitUnlockMinutes)) ? Number(exam.submitUnlockMinutes) : 30;
-    exam.randomizeQuestions ??= false;
-    exam.randomizeOptions ??= false;
+    exam.submitUnlockMinutes = Number.isFinite(Number(exam.submitUnlockMinutes)) ? Number(exam.submitUnlockMinutes) : store.examSettings.submitUnlockMinutes;
+    exam.randomizeQuestions ??= store.examSettings.defaultRandomizeQuestions;
+    exam.randomizeOptions ??= store.examSettings.defaultRandomizeOptions;
   }
 
   for (const user of store.users) {
@@ -257,6 +457,25 @@ function normalizeStore(store) {
     attempt.score ??= null;
   }
 
+  for (const violation of store.violations) {
+    violation.metadata = violation.metadata && typeof violation.metadata === "object" ? violation.metadata : {};
+    violation.dedupKey ||= violationDedupKey({
+      studentId: violation.studentId,
+      examId: violation.examId,
+      type: violation.type,
+      metadata: violation.metadata,
+      createdAt: violation.createdAt
+    });
+    violation.updatedAt ??= null;
+  }
+
+  for (const session of store.sessions) {
+    session.accessMethod ||= session.role === "siswa" ? "ordinary_browser" : "staff";
+    session.examClientVerified = Boolean(session.examClientVerified);
+    session.browserTokenId ||= "";
+    session.browserAccessGrantedAt ??= null;
+  }
+
   for (const question of store.questions) {
     question.type ||= "multiple_choice";
     question.image ||= "";
@@ -271,6 +490,7 @@ function normalizeStore(store) {
 
   for (const student of store.students) {
     student.electiveSubjects = normalizeElectiveSubjects(student.electiveSubjects);
+    student.religion = readReligion(student);
   }
 
   const now = Date.now();
@@ -394,6 +614,11 @@ function readElectiveSubjects(row) {
   ].filter(Boolean).flatMap((item) => Array.isArray(item) ? item : String(item).split(/[;,|]/)));
 }
 
+function readReligion(row, fallback = "") {
+  const value = row.religion ?? row.agama ?? row.Agama ?? row["Agama"] ?? fallback ?? "";
+  return String(value).trim();
+}
+
 function normalizeAnswerText(value, rules = {}) {
   let text = String(value || "");
   if (rules.trimSpaces !== false) text = text.trim().replace(/\s+/g, " ");
@@ -443,6 +668,11 @@ function scoreQuestion(question, answer) {
 
 function roundScore(value) {
   return Math.round(Number(value || 0) * 100) / 100;
+}
+
+function roundDecimal(value, precision = 2) {
+  const factor = 10 ** precision;
+  return Math.round(Number(value || 0) * factor) / factor;
 }
 
 function shuffledCopy(items) {
@@ -578,10 +808,113 @@ function finishAttemptIfExpired(store, attempt, answers = {}) {
 
 function expireEndedAttempts(store, attempts = store.attempts) {
   let changed = false;
+  const expiredAttempts = [];
   for (const attempt of attempts) {
-    if (finishAttemptIfExpired(store, attempt)) changed = true;
+    if (finishAttemptIfExpired(store, attempt)) {
+      changed = true;
+      expiredAttempts.push(attempt);
+    }
   }
-  return changed;
+  return { changed, attempts: expiredAttempts };
+}
+
+async function persistExpiredAttempts(store, result) {
+  if (!result?.changed) return;
+  if (!postgresEnabled) {
+    await writeStore(store);
+    return;
+  }
+  for (const attempt of result.attempts || []) {
+    await saveAttemptToPostgres(attempt);
+  }
+}
+
+function violationDedupKey({ studentId, examId, type, metadata = {}, createdAt }) {
+  const eventTime = Date.parse(createdAt || metadata.clientTime || "") || Date.now();
+  const windowMs = Number(metadata.dedupWindowMs || 2 * 60 * 1000);
+  const windowSlot = Math.floor(eventTime / Math.max(30 * 1000, windowMs));
+  const incidentKey = metadata.incidentKey || `window-${windowSlot}`;
+  return [
+    studentId || "",
+    examId || "",
+    type || "",
+    incidentKey
+  ].join("|");
+}
+
+function addViolationLog(store, payload) {
+  store.violations ??= [];
+  const metadata = payload.metadata || {};
+  const dedupKey = payload.dedupKey || violationDedupKey({ ...payload, metadata });
+  if (dedupKey) {
+    const existing = store.violations.find((violation) => violation.dedupKey === dedupKey);
+    if (existing) {
+      existing.level = payload.level || existing.level;
+      existing.message = payload.message || existing.message;
+      existing.updatedAt = new Date().toISOString();
+      const previousOccurrences = Number(existing.metadata?.occurrences || 1);
+      existing.metadata = { ...(existing.metadata || {}), ...metadata, occurrences: previousOccurrences + 1 };
+      return { violation: existing, created: false };
+    }
+  }
+
+  const violation = {
+    id: createId("v"),
+    studentId: payload.studentId,
+    examId: payload.examId,
+    type: payload.type,
+    level: payload.level || "warning",
+    message: payload.message || "Event exam client tercatat.",
+    createdAt: payload.createdAt || new Date().toISOString(),
+    updatedAt: payload.updatedAt || null,
+    metadata: { ...metadata, occurrences: 1 },
+    dedupKey
+  };
+  store.violations.unshift(violation);
+  return { violation, created: true };
+}
+
+function safeIsoDate(value, fallback = new Date().toISOString()) {
+  if (typeof value === "number" && Number.isFinite(value)) return new Date(value).toISOString();
+  const time = Date.parse(value || "");
+  return Number.isNaN(time) ? fallback : new Date(time).toISOString();
+}
+
+function ensureExamClientHeartbeatViolations(store) {
+  const now = Date.now();
+  let changed = false;
+  const violations = [];
+  for (const attempt of store.attempts) {
+    if (attempt.status !== "in_progress") continue;
+    const exam = store.exams.find((item) => item.id === attempt.examId);
+    if (!exam || getExamAvailability(exam, now).scheduleStatus !== "active") continue;
+    const lastHeartbeatAt = Date.parse(attempt.updatedAt || attempt.startedAt || "");
+    if (!lastHeartbeatAt || Number.isNaN(lastHeartbeatAt)) continue;
+    const silentMs = now - lastHeartbeatAt;
+    if (silentMs < examClientHeartbeatTimeoutMs) continue;
+
+    const incidentSlot = Math.floor(lastHeartbeatAt / examClientHeartbeatRepeatMs);
+    const { violation, created } = addViolationLog(store, {
+      studentId: attempt.studentId,
+      examId: attempt.examId,
+      type: "exam_client_heartbeat_lost",
+      level: "warning",
+      message: `Koneksi atau aplikasi tidak terdeteksi selama ${Math.floor(silentMs / 1000)} detik saat ujian masih berjalan. Perlu dicek: bisa karena koneksi putus, HP terkunci, aplikasi keluar, izin overlay dimatikan, atau peserta membuka aplikasi lain.`,
+      metadata: {
+        incidentKey: `heartbeat-lost-${attempt.id}-${incidentSlot}`,
+        attemptId: attempt.id,
+        silentMs,
+        lastHeartbeatAt: new Date(lastHeartbeatAt).toISOString(),
+        status: "open",
+        category: "connectivity_or_visibility"
+      }
+    });
+    if (created) {
+      changed = true;
+      violations.push(violation);
+    }
+  }
+  return { changed, violations };
 }
 
 function calculateScore(store, attempt) {
@@ -625,20 +958,33 @@ async function requireAuth(req, res, next) {
     if (!activeSession) return res.status(401).json({ message: "Akun ini sudah login di perangkat lain. Silakan login ulang." });
     if (activeSession.expiresAt && new Date(activeSession.expiresAt).getTime() <= Date.now()) {
       store.sessions = store.sessions.filter((item) => item.id !== session.sid);
-      await writeStore(store);
+      await persistSessionDelete(store, session.sid);
       return res.status(401).json({ message: "Sesi login sudah kedaluwarsa." });
     }
 
     const lastSeen = activeSession.lastSeenAt ? new Date(activeSession.lastSeenAt).getTime() : 0;
     if (Date.now() - lastSeen > 60 * 1000) {
       activeSession.lastSeenAt = new Date().toISOString();
-      await writeStore(store);
+      await persistSessionTouch(store, activeSession);
     }
+    req.activeSession = activeSession;
   } else if (user.role === "siswa") {
     return res.status(401).json({ message: "Sesi siswa perlu login ulang agar satu akun hanya aktif di satu perangkat." });
   }
 
   req.user = publicUser(user);
+  if (user.role === "siswa") {
+    const accessState = getStudentAccessState(store, req.activeSession);
+    const allowedPaths = new Set(["/api/me", "/api/browser-access/authorize"]);
+    if (accessState.required && !allowedPaths.has(req.path)) {
+      return res.status(403).json({
+        code: "BROWSER_ACCESS_REQUIRED",
+        message: accessState.message,
+        accessState
+      });
+    }
+    req.user.accessState = accessState;
+  }
   next();
 }
 
@@ -682,6 +1028,30 @@ function filterAttemptsByUser(store, user) {
   if (user.role !== "guru") return enrichAttempts(store);
   const examIds = new Set(filterExamsByUser(store, user).map((exam) => exam.id));
   return enrichAttempts(store).filter((attempt) => examIds.has(attempt.examId));
+}
+
+function attemptActivityTime(attempt) {
+  const value = attempt.updatedAt || attempt.startedAt || attempt.submittedAt || attempt.createdAt || "";
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function findClientEventAttempt(store, user, { attemptId = "", examId = "" } = {}) {
+  if (user.role !== "siswa") return null;
+  const ownAttempts = store.attempts.filter((attempt) => attempt.studentId === user.id);
+  if (attemptId) {
+    const direct = ownAttempts.find((attempt) => attempt.id === attemptId);
+    if (direct) return direct;
+  }
+
+  const scopedAttempts = examId
+    ? ownAttempts.filter((attempt) => attempt.examId === examId)
+    : ownAttempts;
+  const sorted = [...scopedAttempts].sort((a, b) => attemptActivityTime(b) - attemptActivityTime(a));
+  return sorted.find((attempt) => attempt.status === "in_progress")
+    || sorted.find((attempt) => attempt.status !== "not_started")
+    || sorted[0]
+    || null;
 }
 
 function cleanQuestionPayload(body) {
@@ -738,13 +1108,19 @@ function validateQuestion(question) {
 }
 
 function validateExamPublish(store, exam) {
-  if (exam.reviewStatus !== "reviewed") return "Ujian belum ditandai Sudah Dicek oleh admin.";
-  if (!String(exam.token || "").trim()) return "Token ujian wajib diisi sebelum publish.";
+  const settings = normalizeExamSettings(store.examSettings);
   if (!exam.date || !exam.startTime || !exam.endTime) return "Tanggal, jam mulai, dan jam selesai wajib lengkap sebelum publish.";
   const { startAt, endAt } = getExamWindow(exam);
   if (!startAt || !endAt || endAt <= startAt) return "Jadwal ujian tidak valid.";
   if (!store.questions.some((question) => question.examId === exam.id)) return "Ujian belum memiliki soal.";
   if (!store.attempts.some((attempt) => attempt.examId === exam.id)) return "Ujian belum memiliki peserta.";
+  if (settings.requireReviewBeforePublish && exam.reviewStatus !== "reviewed") return "Soal harus ditandai sudah dicek admin sebelum publish.";
+  if (settings.requireWeight100BeforePublish) {
+    const totalWeight = roundScore(store.questions
+      .filter((question) => question.examId === exam.id)
+      .reduce((sum, question) => sum + Number(question.score || 0), 0));
+    if (Math.abs(totalWeight - 100) >= 0.01) return `Total bobot soal harus 100 sebelum publish. Saat ini ${totalWeight}.`;
+  }
   return "";
 }
 
@@ -782,10 +1158,24 @@ app.post("/api/login", async (req, res) => {
   if (!user || !verifyPassword(user.password, password)) {
     return res.status(401).json({ message: "Username atau password salah." });
   }
+  if (isExamClientRequest(req) && user.role !== "siswa") {
+    addAuditLog(store, { ...req, user: publicUser(user) }, "blocked_exam_client_login", "session", "", `${user.name} ditolak login dari Exam Browser karena bukan akun siswa.`, {
+      role: user.role
+    });
+    await writeStore(store);
+    return res.status(403).json({
+      message: "Aplikasi Exam Browser hanya untuk peserta didik. Admin, guru, dan pengawas silakan login melalui browser biasa."
+    });
+  }
   ensureHashedPassword(user);
   const loginSession = createLoginSession(req, store, user);
+  const accessState = getStudentAccessState(store, loginSession);
+  addAuditLog(store, { ...req, user: publicUser(user) }, "login", "session", loginSession.id, `${user.name} login.`, {
+    accessMethod: loginSession.accessMethod,
+    accessState
+  });
   await writeStore(store);
-  res.json({ user: publicUser(user), token: createSessionToken(user, loginSession.id) });
+  res.json({ user: { ...publicUser(user), accessState }, token: createSessionToken(user, loginSession.id) });
 });
 
 app.use(requireAuth);
@@ -794,9 +1184,128 @@ app.get("/api/me", async (req, res) => {
   res.json({ user: req.user });
 });
 
+app.post("/api/browser-access/authorize", allowRoles("siswa"), async (req, res) => {
+  const store = await readStore();
+  const activeSession = store.sessions.find((item) => item.id === req.activeSession?.id && item.userId === req.user.id);
+  if (!activeSession) return res.status(401).json({ message: "Sesi login tidak ditemukan." });
+  const accessControl = normalizeAccessControl(store.accessControl);
+  if (accessControl.studentMode === "strict") {
+    return res.status(403).json({ message: "Mode saat ini wajib Exam Browser. Browser biasa tidak diizinkan." });
+  }
+  if (accessControl.studentMode === "open") {
+    activeSession.accessMethod = "open";
+    activeSession.browserAccessGrantedAt = new Date().toISOString();
+  } else {
+    const browserToken = getActiveBrowserToken(accessControl, req.body.token);
+    if (!browserToken) return res.status(403).json({ message: "Token Akses Browser salah, tidak aktif, atau sudah kedaluwarsa." });
+    activeSession.accessMethod = "browser_token";
+    activeSession.browserTokenId = browserToken.id;
+    activeSession.browserAccessGrantedAt = new Date().toISOString();
+    addAuditLog(store, req, "authorize_browser_access", "session", activeSession.id, `${req.user.name} memakai Token Akses Browser.`, {
+      tokenId: browserToken.id,
+      tokenLabel: browserToken.label,
+      ipAddress: activeSession.ipAddress,
+      userAgent: activeSession.userAgent
+    });
+  }
+  await writeStore(store);
+  res.json({ user: { ...req.user, accessState: getStudentAccessState(store, activeSession) } });
+});
+
+app.get("/api/access-control", allowRoles("admin", "guru", "pengawas"), async (_req, res) => {
+  const store = await readStore();
+  res.json(normalizeAccessControl(store.accessControl));
+});
+
+app.put("/api/access-control", allowRoles("admin"), async (req, res) => {
+  const store = await readStore();
+  const current = normalizeAccessControl(store.accessControl);
+  store.accessControl = normalizeAccessControl({
+    ...current,
+    studentMode: req.body.studentMode || current.studentMode
+  });
+  addAuditLog(store, req, "update_access_control", "access_control", "student", "Mode akses peserta diperbarui.", {
+    studentMode: store.accessControl.studentMode
+  });
+  await writeStore(store);
+  res.json(store.accessControl);
+});
+
+app.post("/api/access-control/browser-tokens", allowRoles("admin"), async (req, res) => {
+  const store = await readStore();
+  const accessControl = normalizeAccessControl(store.accessControl);
+  const minutes = Math.max(5, Math.min(24 * 60, Number(req.body.expiresMinutes || 60)));
+  const token = {
+    id: createId("browser-token"),
+    token: createBrowserAccessToken(),
+    label: String(req.body.label || "Token Browser").trim() || "Token Browser",
+    active: true,
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + minutes * 60 * 1000).toISOString(),
+    createdBy: req.user.id
+  };
+  accessControl.browserTokens.unshift(token);
+  store.accessControl = normalizeAccessControl(accessControl);
+  addAuditLog(store, req, "create_browser_token", "access_control", token.id, `Token Akses Browser ${token.label} dibuat.`, {
+    expiresAt: token.expiresAt
+  });
+  await writeStore(store);
+  res.status(201).json(store.accessControl);
+});
+
+app.post("/api/access-control/browser-tokens/:id/revoke", allowRoles("admin"), async (req, res) => {
+  const store = await readStore();
+  const accessControl = normalizeAccessControl(store.accessControl);
+  const token = accessControl.browserTokens.find((item) => item.id === req.params.id);
+  if (!token) return res.status(404).json({ message: "Token browser tidak ditemukan." });
+  token.active = false;
+  store.accessControl = normalizeAccessControl(accessControl);
+  addAuditLog(store, req, "revoke_browser_token", "access_control", token.id, `Token Akses Browser ${token.label} dicabut.`);
+  await writeStore(store);
+  res.json(store.accessControl);
+});
+
+app.get("/api/exam-settings", allowRoles("admin", "guru", "pengawas"), async (_req, res) => {
+  const store = await readStore();
+  const settings = normalizeExamSettings(store.examSettings);
+  res.json({ ...settings, activeToken: getGlobalExamToken(settings) });
+});
+
+app.put("/api/exam-settings", allowRoles("admin"), async (req, res) => {
+  const store = await readStore();
+  const current = normalizeExamSettings(store.examSettings);
+  const next = normalizeExamSettings({
+    ...current,
+    examWithoutToken: req.body.examWithoutToken ?? current.examWithoutToken,
+    tokenIntervalMinutes: req.body.tokenIntervalMinutes ?? current.tokenIntervalMinutes,
+    submitUnlockMinutes: req.body.submitUnlockMinutes ?? current.submitUnlockMinutes,
+    autoSubmitOnEnd: req.body.autoSubmitOnEnd ?? current.autoSubmitOnEnd,
+    requireReviewBeforePublish: req.body.requireReviewBeforePublish ?? current.requireReviewBeforePublish,
+    requireWeight100BeforePublish: req.body.requireWeight100BeforePublish ?? current.requireWeight100BeforePublish,
+    defaultRandomizeQuestions: req.body.defaultRandomizeQuestions ?? current.defaultRandomizeQuestions,
+    defaultRandomizeOptions: req.body.defaultRandomizeOptions ?? current.defaultRandomizeOptions
+  });
+  store.examSettings = next;
+  addAuditLog(store, req, "update_exam_settings", "exam_settings", "global", "Pengaturan ujian diperbarui.", next);
+  await writeStore(store);
+  res.json({ ...next, activeToken: getGlobalExamToken(next) });
+});
+
+app.post("/api/exam-settings/token/regenerate", allowRoles("admin"), async (req, res) => {
+  const store = await readStore();
+  const settings = normalizeExamSettings(store.examSettings);
+  settings.tokenSalt = crypto.randomBytes(16).toString("hex");
+  store.examSettings = settings;
+  addAuditLog(store, req, "regenerate_exam_token", "exam_settings", "global_token", "Token ujian global digenerate ulang manual.", {
+    nextChangeAt: getGlobalExamToken(settings).nextChangeAt
+  });
+  await writeStore(store);
+  res.json({ ...settings, activeToken: getGlobalExamToken(settings) });
+});
+
 app.get("/api/summary", allowRoles("admin", "guru", "pengawas"), async (req, res) => {
   const store = await readStore();
-  if (expireEndedAttempts(store)) await writeStore(store);
+  await persistExpiredAttempts(store, expireEndedAttempts(store));
   const visibleExams = filterExamsByUser(store, req.user);
   const visibleExamIds = new Set(visibleExams.map((exam) => exam.id));
   res.json({
@@ -920,6 +1429,7 @@ app.post("/api/students", allowRoles("admin"), async (req, res) => {
     nisn: req.body.nisn || "",
     name: req.body.name,
     gender: req.body.gender || "",
+    religion: readReligion(req.body),
     username: req.body.username || req.body.nis,
     password: req.body.password || createStudentPassword(),
     className: req.body.className,
@@ -954,6 +1464,7 @@ app.post("/api/students/bulk", allowRoles("admin"), async (req, res) => {
       nisn: String(row.nisn || row.NISN || "").trim(),
       name,
       gender: String(row.gender || row["L/P"] || row.lp || row.LP || "").trim(),
+      religion: readReligion(row),
       username: String(row.username || row.Username || nis).trim(),
       password: String(row.password || row.Password || "").trim(),
       className: String(row.className || row.kelas || row.Kelas || "-").trim(),
@@ -1006,6 +1517,7 @@ app.put("/api/students/:id", allowRoles("admin"), async (req, res) => {
     nisn: req.body.nisn ?? student.nisn,
     name: req.body.name ?? student.name,
     gender: req.body.gender ?? student.gender,
+    religion: req.body.religion !== undefined || req.body.agama !== undefined ? readReligion(req.body, student.religion) : student.religion,
     username: req.body.username ?? student.username,
     password: req.body.password ?? student.password,
     className: req.body.className ?? student.className,
@@ -1071,13 +1583,20 @@ app.get("/api/exams", allowRoles("admin", "guru", "pengawas"), async (req, res) 
     teacherIds: normalizeTeacherIds(exam),
     teacherNames: normalizeTeacherIds(exam).map((teacherId) => store.users.find((user) => user.id === teacherId)?.name).filter(Boolean),
     questionCount: store.questions.filter((question) => question.examId === exam.id).length,
-    participantCount: store.attempts.filter((attempt) => attempt.examId === exam.id).length
+    participantCount: store.attempts.filter((attempt) => attempt.examId === exam.id).length,
+    attemptStatusCounts: store.attempts.filter((attempt) => attempt.examId === exam.id).reduce((counts, attempt) => {
+      if (attempt.status === "submitted") counts.submitted += 1;
+      else if (attempt.status === "in_progress") counts.inProgress += 1;
+      else counts.notStarted += 1;
+      return counts;
+    }, { submitted: 0, inProgress: 0, notStarted: 0 })
   }));
   res.json(exams);
 });
 
 app.post("/api/exams", allowRoles("admin", "guru"), async (req, res) => {
   const store = await readStore();
+  const settings = normalizeExamSettings(store.examSettings);
   const teacherIds = req.user.role === "guru" ? [req.user.id] : readTeacherIds(req.body);
   const exam = {
     id: createId("exam"),
@@ -1089,12 +1608,12 @@ app.post("/api/exams", allowRoles("admin", "guru"), async (req, res) => {
     startTime: req.body.startTime,
     endTime: req.body.endTime || "",
     durationMinutes: Number(req.body.durationMinutes || 90),
-    submitUnlockMinutes: Number(req.body.submitUnlockMinutes ?? 30),
-    token: req.body.token,
+    submitUnlockMinutes: Number(req.body.submitUnlockMinutes ?? settings.submitUnlockMinutes),
+    token: "",
     status: req.body.status || "draft",
     reviewStatus: req.body.reviewStatus || "unreviewed",
-    randomizeQuestions: Boolean(req.body.randomizeQuestions),
-    randomizeOptions: Boolean(req.body.randomizeOptions)
+    randomizeQuestions: req.body.randomizeQuestions !== undefined ? Boolean(req.body.randomizeQuestions) : settings.defaultRandomizeQuestions,
+    randomizeOptions: req.body.randomizeOptions !== undefined ? Boolean(req.body.randomizeOptions) : settings.defaultRandomizeOptions
   };
   if (exam.status === "published") {
     const validation = validateExamPublish(store, exam);
@@ -1123,7 +1642,7 @@ app.put("/api/exams/:id", allowRoles("admin", "guru"), async (req, res) => {
     endTime: req.body.endTime ?? exam.endTime,
     durationMinutes: req.body.durationMinutes ? Number(req.body.durationMinutes) : exam.durationMinutes,
     submitUnlockMinutes: req.body.submitUnlockMinutes !== undefined ? Number(req.body.submitUnlockMinutes) : exam.submitUnlockMinutes,
-    token: req.body.token ?? exam.token,
+    token: "",
     status: req.body.status ?? exam.status,
     reviewStatus: req.body.reviewStatus ?? exam.reviewStatus,
     randomizeQuestions: req.body.randomizeQuestions ?? exam.randomizeQuestions,
@@ -1201,6 +1720,37 @@ app.put("/api/exams/:id/participants", allowRoles("admin", "guru"), async (req, 
   res.json(enrichAttempts(store).filter((attempt) => attempt.examId === exam.id));
 });
 
+app.post("/api/exams/:id/attempts/reset", allowRoles("admin", "guru"), async (req, res) => {
+  const store = await readStore();
+  const exam = store.exams.find((item) => item.id === req.params.id);
+  if (!exam) return res.status(404).json({ message: "Ujian tidak ditemukan." });
+  if (!canManageExam(req.user, exam)) return res.status(403).json({ message: "Guru hanya bisa reset ujian miliknya." });
+
+  const studentIds = Array.isArray(req.body.studentIds) ? new Set(req.body.studentIds.map((id) => String(id))) : new Set();
+  if (!studentIds.size) return res.status(400).json({ message: "Pilih minimal satu peserta yang akan direset." });
+
+  let resetCount = 0;
+  for (const attempt of store.attempts) {
+    if (attempt.examId !== exam.id || !studentIds.has(attempt.studentId)) continue;
+    attempt.status = "not_started";
+    attempt.answers = {};
+    attempt.questionOrder = [];
+    attempt.optionOrders = {};
+    attempt.score = null;
+    attempt.startedAt = null;
+    attempt.submittedAt = null;
+    attempt.updatedAt = null;
+    resetCount += 1;
+  }
+
+  addAuditLog(store, req, "reset_attempts", "exam", exam.id, `${resetCount} peserta ujian ${exam.code} direset.`, {
+    studentIds: [...studentIds],
+    count: resetCount
+  });
+  await writeStore(store);
+  res.json({ reset: resetCount, participants: enrichAttempts(store).filter((attempt) => attempt.examId === exam.id) });
+});
+
 app.get("/api/questions", allowRoles("admin", "guru", "pengawas"), async (req, res) => {
   const store = await readStore();
   const { examId } = req.query;
@@ -1256,6 +1806,44 @@ app.post("/api/questions/bulk", allowRoles("admin", "guru"), async (req, res) =>
   res.status(201).json({ created: created.length, skipped: skipped.length, questions: created });
 });
 
+app.post("/api/questions/weights/generate", allowRoles("admin", "guru"), async (req, res) => {
+  const store = await readStore();
+  const exam = store.exams.find((item) => item.id === req.body.examId);
+  if (!exam) return res.status(404).json({ message: "Ujian tidak ditemukan." });
+  if (!canManageExam(req.user, exam)) return res.status(403).json({ message: "Guru hanya bisa mengatur bobot pada ujian miliknya." });
+
+  const examQuestions = store.questions.filter((question) => question.examId === exam.id);
+  if (!examQuestions.length) return res.status(400).json({ message: "Belum ada soal untuk digenerate bobotnya." });
+
+  const targetScore = Math.min(100, Math.max(1, Number(req.body.totalScore || 100)));
+  const precision = 4;
+  const factor = 10 ** precision;
+  const baseScore = Math.floor((targetScore / examQuestions.length) * factor) / factor;
+  let assignedScore = 0;
+
+  examQuestions.forEach((question, index) => {
+    const score = index === examQuestions.length - 1
+      ? roundDecimal(targetScore - assignedScore, precision)
+      : baseScore;
+    question.score = score;
+    assignedScore = roundDecimal(assignedScore + score, precision);
+  });
+
+  const totalScore = roundDecimal(examQuestions.reduce((sum, question) => sum + Number(question.score || 0), 0), precision);
+  addAuditLog(store, req, "generate_question_weights", "exam", exam.id, `Bobot ${examQuestions.length} soal ${exam.code} digenerate menjadi total ${totalScore}.`, {
+    examId: exam.id,
+    questionCount: examQuestions.length,
+    totalScore
+  });
+  await writeStore(store);
+  res.json({
+    updated: examQuestions.length,
+    totalScore,
+    perQuestionScore: baseScore,
+    questions: examQuestions
+  });
+});
+
 app.put("/api/questions/:id", allowRoles("admin", "guru"), async (req, res) => {
   const store = await readStore();
   const question = store.questions.find((item) => item.id === req.params.id);
@@ -1299,13 +1887,17 @@ app.delete("/api/questions/:id", allowRoles("admin", "guru"), async (req, res) =
 
 app.get("/api/attempts", allowRoles("admin", "guru", "pengawas"), async (req, res) => {
   const store = await readStore();
-  if (expireEndedAttempts(store)) await writeStore(store);
+  const expired = expireEndedAttempts(store);
+  const heartbeat = ensureExamClientHeartbeatViolations(store);
+  await persistAttemptAndViolationChanges(store, expired.attempts, heartbeat.violations);
   res.json(filterAttemptsByUser(store, req.user));
 });
 
 app.get("/api/results", allowRoles("admin", "guru", "pengawas"), async (req, res) => {
   const store = await readStore();
-  if (expireEndedAttempts(store)) await writeStore(store);
+  const expired = expireEndedAttempts(store);
+  const heartbeat = ensureExamClientHeartbeatViolations(store);
+  await persistAttemptAndViolationChanges(store, expired.attempts, heartbeat.violations);
   res.json(filterAttemptsByUser(store, req.user).map((attempt) => ({
     ...attempt,
     score: attempt.score ?? (attempt.status === "submitted" ? calculateScore(store, attempt) : null)
@@ -1318,7 +1910,8 @@ app.get("/api/student/:studentId/exams", allowRoles("admin", "siswa"), async (re
   }
   const store = await readStore();
   const attempts = store.attempts.filter((attempt) => attempt.studentId === req.params.studentId);
-  if (expireEndedAttempts(store, attempts)) await writeStore(store);
+  const examSettings = normalizeExamSettings(store.examSettings);
+  await persistExpiredAttempts(store, expireEndedAttempts(store, attempts));
   res.json(attempts.map((attempt) => {
     const exam = store.exams.find((item) => item.id === attempt.examId);
     const questionCount = store.questions.filter((question) => question.examId === attempt.examId).length;
@@ -1332,6 +1925,7 @@ app.get("/api/student/:studentId/exams", allowRoles("admin", "siswa"), async (re
       scheduleStatus: availability.scheduleStatus,
       scheduleMessage: availability.message,
       canStart: availability.canStart && attempt.status !== "submitted",
+      tokenRequired: !examSettings.examWithoutToken && attempt.status !== "in_progress",
       startAt: availability.startAt,
       endAt: availability.endAt,
       serverTime: availability.serverTime,
@@ -1356,7 +1950,7 @@ app.post("/api/attempts/start", allowRoles("admin", "siswa"), async (req, res) =
   if (!attempt && req.user.role === "siswa") {
     return res.status(403).json({ message: "Akun ini belum terdaftar sebagai peserta ujian tersebut." });
   }
-  if (exam.token && attempt?.status !== "in_progress" && String(token || "").trim().toUpperCase() !== String(exam.token).trim().toUpperCase()) {
+  if (attempt?.status !== "in_progress" && !validateGlobalExamToken(store, token)) {
     return res.status(403).json({ message: "Token ujian salah." });
   }
   if (!attempt) {
@@ -1369,14 +1963,13 @@ app.post("/api/attempts/start", allowRoles("admin", "siswa"), async (req, res) =
   attempt.startedAt ??= new Date().toISOString();
   attempt.updatedAt = new Date().toISOString();
   if (wasInProgress && req.user.role === "siswa") {
-    store.violations.unshift({
-      id: createId("v"),
+    addViolationLog(store, {
       studentId: attempt.studentId,
       examId: attempt.examId,
       type: "attempt_resumed",
       level: "info",
       message: "Peserta melanjutkan ujian yang sedang berjalan.",
-      createdAt: new Date().toISOString()
+      metadata: { attemptId: attempt.id }
     });
   }
   const questions = questionsForAttempt(store, exam, attempt);
@@ -1397,23 +1990,24 @@ app.get("/api/attempts/:id/reload", allowRoles("admin", "siswa"), async (req, re
 
   const availability = getExamAvailability(exam);
   if (finishAttemptIfExpired(store, attempt)) {
-    await writeStore(store);
+    await persistAttemptChange(store, attempt);
     return res.status(409).json({ message: "Waktu ujian sudah berakhir. Jawaban sudah disubmit otomatis.", attempt });
   }
 
   const questions = questionsForAttempt(store, exam, attempt);
+  let violationToSave = null;
   if (req.user.role === "siswa") {
-    store.violations.unshift({
-      id: createId("v"),
+    const { violation } = addViolationLog(store, {
       studentId: attempt.studentId,
       examId: attempt.examId,
       type: "questions_reloaded",
       level: "info",
       message: "Peserta memuat ulang data soal tanpa keluar ujian.",
-      createdAt: new Date().toISOString()
+      metadata: { attemptId: attempt.id }
     });
+    violationToSave = violation;
   }
-  await writeStore(store);
+  await persistViolationChange(store, violationToSave);
   res.json({ attempt, exam, questions, availability });
 });
 
@@ -1427,14 +2021,14 @@ app.put("/api/attempts/:id/answers", allowRoles("admin", "siswa"), async (req, r
   if (attempt.status === "submitted") return res.status(409).json({ message: "Jawaban sudah final." });
 
   if (finishAttemptIfExpired(store, attempt, req.body.answers || {})) {
-    await writeStore(store);
+    await persistAttemptChange(store, attempt);
     return res.status(409).json({ message: "Waktu ujian sudah berakhir. Jawaban terakhir sudah disubmit otomatis.", attempt });
   }
 
   attempt.answers = { ...(attempt.answers || {}), ...(req.body.answers || {}) };
   attempt.status = "in_progress";
   attempt.updatedAt = new Date().toISOString();
-  await writeStore(store);
+  await persistAttemptChange(store, attempt);
   res.json(attempt);
 });
 
@@ -1447,6 +2041,30 @@ app.post("/api/attempts/:id/submit", allowRoles("admin", "siswa"), async (req, r
   }
 
   finishAttempt(store, attempt, req.body.answers || {});
+  await persistAttemptChange(store, attempt);
+  res.json(attempt);
+});
+
+app.post("/api/attempts/:id/admin-finish", allowRoles("admin", "pengawas"), async (req, res) => {
+  const store = await readStore();
+  const attempt = store.attempts.find((item) => item.id === req.params.id);
+  if (!attempt) return res.status(404).json({ message: "Attempt tidak ditemukan." });
+  if (attempt.status === "submitted") return res.status(409).json({ message: "Ujian peserta sudah selesai." });
+  const reason = String(req.body.reason || "Dipaksa selesai oleh admin/pengawas.").slice(0, 300);
+  finishAttempt(store, attempt);
+  addViolationLog(store, {
+    studentId: attempt.studentId,
+    examId: attempt.examId,
+    type: "admin_force_finish",
+    level: "critical",
+    message: `Ujian dipaksa selesai oleh ${req.user.name}. Alasan: ${reason}`,
+    metadata: { attemptId: attempt.id, reason, forcedBy: req.user.id }
+  });
+  addAuditLog(store, req, "force_finish_attempt", "attempt", attempt.id, `Ujian peserta dipaksa selesai. Alasan: ${reason}`, {
+    studentId: attempt.studentId,
+    examId: attempt.examId,
+    reason
+  });
   await writeStore(store);
   res.json(attempt);
 });
@@ -1459,19 +2077,109 @@ app.post("/api/attempts/:id/heartbeat", allowRoles("admin", "siswa"), async (req
     return res.status(403).json({ message: "Peserta hanya bisa mengirim heartbeat miliknya sendiri." });
   }
   attempt.updatedAt = new Date().toISOString();
+  let violationToSave = null;
   if (req.body.event && req.body.event !== "heartbeat") {
-    store.violations.unshift({
-      id: createId("v"),
+    const { violation } = addViolationLog(store, {
       studentId: attempt.studentId,
       examId: attempt.examId,
       type: req.body.event,
       level: req.body.level || "warning",
       message: req.body.message || "Event exam client tercatat.",
-      createdAt: new Date().toISOString()
+      metadata: {
+        ...(req.body.metadata && typeof req.body.metadata === "object" ? req.body.metadata : {}),
+        attemptId: attempt.id,
+        clientEventId: req.body.clientEventId || ""
+      }
     });
+    violationToSave = violation;
   }
-  await writeStore(store);
+  await persistAttemptAndViolationChanges(store, [attempt], violationToSave ? [violationToSave] : []);
   res.json({ ok: true, updatedAt: attempt.updatedAt });
+});
+
+app.post("/api/client-events", allowRoles("siswa"), async (req, res) => {
+  const store = await readStore();
+  const attempt = findClientEventAttempt(store, req.user, {
+    attemptId: String(req.body.attemptId || ""),
+    examId: String(req.body.examId || "")
+  });
+  if (!attempt) {
+    return res.status(404).json({ message: "Attempt peserta belum ditemukan untuk mencatat event." });
+  }
+
+  const event = String(req.body.event || "client_event").slice(0, 80);
+  const level = String(req.body.level || "warning").slice(0, 30);
+  const message = String(req.body.message || "Event exam client tercatat.").slice(0, 500);
+  const attemptsToSave = [];
+  let violationToSave = null;
+  if (attempt.status === "in_progress") {
+    attempt.updatedAt = new Date().toISOString();
+    attemptsToSave.push(attempt);
+  }
+  if (event && event !== "heartbeat") {
+    const { violation } = addViolationLog(store, {
+      studentId: attempt.studentId,
+      examId: attempt.examId,
+      type: event,
+      level,
+      message,
+      createdAt: safeIsoDate(req.body.clientTime),
+      metadata: {
+        ...(req.body.metadata && typeof req.body.metadata === "object" ? req.body.metadata : {}),
+        attemptId: attempt.id,
+        clientEventId: req.body.clientEventId || "",
+        clientTime: req.body.clientTime || "",
+        receivedAt: new Date().toISOString()
+      }
+    });
+    violationToSave = violation;
+  }
+  await persistAttemptAndViolationChanges(store, attemptsToSave, violationToSave ? [violationToSave] : []);
+  res.json({ ok: true, attemptId: attempt.id, examId: attempt.examId });
+});
+
+app.post("/api/client-events/batch", allowRoles("siswa"), async (req, res) => {
+  const store = await readStore();
+  const events = Array.isArray(req.body.events) ? req.body.events.slice(0, 100) : [];
+  const recorded = [];
+  const attemptsToSave = [];
+  const violationsToSave = [];
+
+  for (const item of events) {
+    const attempt = findClientEventAttempt(store, req.user, {
+      attemptId: String(item.attemptId || ""),
+      examId: String(item.examId || "")
+    });
+    if (!attempt) continue;
+    const event = String(item.event || "client_event").slice(0, 80);
+    if (!event || event === "heartbeat") continue;
+
+    if (attempt.status === "in_progress") {
+      attempt.updatedAt = new Date().toISOString();
+      attemptsToSave.push(attempt);
+    }
+    const { violation } = addViolationLog(store, {
+      studentId: attempt.studentId,
+      examId: attempt.examId,
+      type: event,
+      level: String(item.level || "warning").slice(0, 30),
+      message: String(item.message || "Event exam client tercatat.").slice(0, 500),
+      createdAt: safeIsoDate(item.clientTime),
+      metadata: {
+        ...(item.metadata && typeof item.metadata === "object" ? item.metadata : {}),
+        attemptId: attempt.id,
+        clientEventId: item.clientEventId || "",
+        clientTime: item.clientTime || "",
+        receivedAt: new Date().toISOString(),
+        source: "offline_queue"
+      }
+    });
+    violationsToSave.push(violation);
+    recorded.push({ id: violation.id, event, attemptId: attempt.id, examId: attempt.examId });
+  }
+
+  await persistAttemptAndViolationChanges(store, attemptsToSave, violationsToSave);
+  res.json({ ok: true, recorded: recorded.length, events: recorded });
 });
 
 app.get("/api/cards", allowRoles("admin"), async (_req, res) => {
@@ -1494,6 +2202,23 @@ app.get("/api/violations", allowRoles("admin", "guru", "pengawas"), async (req, 
   res.json(enriched);
 });
 
+app.delete("/api/violations", allowRoles("admin"), async (req, res) => {
+  const store = await readStore();
+  const ids = Array.isArray(req.body.ids) ? req.body.ids.map((id) => String(id || "")).filter(Boolean) : [];
+  if (!ids.length) return res.status(400).json({ message: "Pilih minimal satu log pelanggaran untuk dihapus." });
+
+  const idSet = new Set(ids);
+  const before = store.violations.length;
+  store.violations = store.violations.filter((violation) => !idSet.has(violation.id));
+  const deleted = before - store.violations.length;
+  addAuditLog(store, req, "delete", "violation", "bulk", `${deleted} log pelanggaran dihapus dari monitoring.`, {
+    deleted,
+    requested: ids.length
+  });
+  await writeStore(store);
+  res.json({ ok: true, deleted });
+});
+
 app.get("/api/audit-logs", allowRoles("admin"), async (_req, res) => {
   const store = await readStore();
   res.json((store.auditLogs || []).slice(0, 200));
@@ -1501,16 +2226,14 @@ app.get("/api/audit-logs", allowRoles("admin"), async (_req, res) => {
 
 app.post("/api/violations", allowRoles("admin", "pengawas"), async (req, res) => {
   const store = await readStore();
-  const violation = {
-    id: createId("v"),
+  const { violation } = addViolationLog(store, {
     studentId: req.body.studentId,
     examId: req.body.examId,
     type: req.body.type,
     level: req.body.level || "warning",
     message: req.body.message,
-    createdAt: new Date().toISOString()
-  };
-  store.violations.unshift(violation);
+    metadata: req.body.metadata && typeof req.body.metadata === "object" ? req.body.metadata : {}
+  });
   await writeStore(store);
   res.status(201).json(violation);
 });

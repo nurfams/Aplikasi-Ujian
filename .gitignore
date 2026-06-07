@@ -2,6 +2,7 @@ node_modules/
 dist/
 .env
 dev-server.*.log
+dev-server.log
 api-server.*.log
 npm-debug.log*
 *.tmp

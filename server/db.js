@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS students (
   nisn TEXT,
   name TEXT NOT NULL,
   gender TEXT,
+  religion TEXT,
   username TEXT NOT NULL UNIQUE,
   password TEXT NOT NULL,
   class_name TEXT NOT NULL,
@@ -42,6 +43,7 @@ CREATE TABLE IF NOT EXISTS students (
 ALTER TABLE students ADD COLUMN IF NOT EXISTS elective_subjects JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE students ADD COLUMN IF NOT EXISTS nisn TEXT;
 ALTER TABLE students ADD COLUMN IF NOT EXISTS gender TEXT;
+ALTER TABLE students ADD COLUMN IF NOT EXISTS religion TEXT;
 
 CREATE TABLE IF NOT EXISTS exams (
   id TEXT PRIMARY KEY,
@@ -114,8 +116,15 @@ CREATE TABLE IF NOT EXISTS violations (
   type TEXT NOT NULL,
   level TEXT NOT NULL DEFAULT 'warning',
   message TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  dedup_key TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ
 );
+
+ALTER TABLE violations ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE violations ADD COLUMN IF NOT EXISTS dedup_key TEXT;
+ALTER TABLE violations ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS active_sessions (
   id TEXT PRIMARY KEY,
@@ -123,9 +132,24 @@ CREATE TABLE IF NOT EXISTS active_sessions (
   role TEXT NOT NULL,
   user_agent TEXT,
   ip_address TEXT,
+  access_method TEXT NOT NULL DEFAULT 'ordinary_browser',
+  exam_client_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  browser_token_id TEXT,
+  browser_access_granted_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at TIMESTAMPTZ NOT NULL
+);
+
+ALTER TABLE active_sessions ADD COLUMN IF NOT EXISTS access_method TEXT NOT NULL DEFAULT 'ordinary_browser';
+ALTER TABLE active_sessions ADD COLUMN IF NOT EXISTS exam_client_verified BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE active_sessions ADD COLUMN IF NOT EXISTS browser_token_id TEXT;
+ALTER TABLE active_sessions ADD COLUMN IF NOT EXISTS browser_access_granted_at TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS app_settings (
+  id TEXT PRIMARY KEY,
+  value JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS audit_logs (
@@ -142,6 +166,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_students_class_name ON students(class_name);
+CREATE INDEX IF NOT EXISTS idx_students_religion ON students(religion);
 CREATE INDEX IF NOT EXISTS idx_exams_status ON exams(status);
 CREATE INDEX IF NOT EXISTS idx_questions_exam_id ON questions(exam_id);
 CREATE INDEX IF NOT EXISTS idx_attempts_exam_id ON attempts(exam_id);
@@ -149,6 +174,7 @@ CREATE INDEX IF NOT EXISTS idx_attempts_student_id ON attempts(student_id);
 CREATE INDEX IF NOT EXISTS idx_attempts_status ON attempts(status);
 CREATE INDEX IF NOT EXISTS idx_violations_exam_id ON violations(exam_id);
 CREATE INDEX IF NOT EXISTS idx_violations_student_id ON violations(student_id);
+CREATE INDEX IF NOT EXISTS idx_violations_dedup_key ON violations(dedup_key);
 CREATE INDEX IF NOT EXISTS idx_active_sessions_user_id ON active_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_active_sessions_expires_at ON active_sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
@@ -159,6 +185,14 @@ function toIso(value) {
   if (!value) return null;
   if (value instanceof Date) return value.toISOString();
   return value;
+}
+
+let writeQueue = Promise.resolve();
+
+function enqueueWrite(operation) {
+  const run = writeQueue.then(operation, operation);
+  writeQueue = run.catch(() => {});
+  return run;
 }
 
 export async function initDatabase(seed) {
@@ -181,7 +215,7 @@ async function setupDatabase(seed) {
 }
 
 export async function readStoreFromPostgres() {
-  const [users, students, exams, questions, attempts, violations, sessions, auditLogs] = await Promise.all([
+  const [users, students, exams, questions, attempts, violations, sessions, auditLogs, accessControl, examSettings] = await Promise.all([
     pool.query("SELECT * FROM users ORDER BY role, name"),
     pool.query("SELECT * FROM students ORDER BY class_name, name"),
     pool.query("SELECT * FROM exams ORDER BY exam_date NULLS LAST, start_time NULLS LAST, code"),
@@ -189,7 +223,9 @@ export async function readStoreFromPostgres() {
     pool.query("SELECT * FROM attempts ORDER BY updated_at DESC NULLS LAST, id"),
     pool.query("SELECT * FROM violations ORDER BY created_at DESC"),
     pool.query("SELECT * FROM active_sessions ORDER BY last_seen_at DESC"),
-    pool.query("SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 500")
+    pool.query("SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 500"),
+    pool.query("SELECT value FROM app_settings WHERE id = 'access_control'"),
+    pool.query("SELECT value FROM app_settings WHERE id = 'exam_settings'")
   ]);
 
   return {
@@ -208,6 +244,7 @@ export async function readStoreFromPostgres() {
       nisn: row.nisn || "",
       name: row.name,
       gender: row.gender || "",
+      religion: row.religion || "",
       username: row.username,
       password: row.password,
       className: row.class_name,
@@ -267,7 +304,10 @@ export async function readStoreFromPostgres() {
       type: row.type,
       level: row.level,
       message: row.message,
-      createdAt: toIso(row.created_at)
+      metadata: row.metadata || {},
+      dedupKey: row.dedup_key || "",
+      createdAt: toIso(row.created_at),
+      updatedAt: toIso(row.updated_at)
     })),
     sessions: sessions.rows.map((row) => ({
       id: row.id,
@@ -275,6 +315,10 @@ export async function readStoreFromPostgres() {
       role: row.role,
       userAgent: row.user_agent || "",
       ipAddress: row.ip_address || "",
+      accessMethod: row.access_method || "ordinary_browser",
+      examClientVerified: !!row.exam_client_verified,
+      browserTokenId: row.browser_token_id || "",
+      browserAccessGrantedAt: toIso(row.browser_access_granted_at),
       createdAt: toIso(row.created_at),
       lastSeenAt: toIso(row.last_seen_at),
       expiresAt: toIso(row.expires_at)
@@ -290,11 +334,17 @@ export async function readStoreFromPostgres() {
       message: row.message,
       metadata: row.metadata || {},
       createdAt: toIso(row.created_at)
-    }))
+    })),
+    accessControl: accessControl.rows[0]?.value || undefined,
+    examSettings: examSettings.rows[0]?.value || undefined
   };
 }
 
 export async function writeStoreToPostgres(store) {
+  return enqueueWrite(() => writeStoreToPostgresNow(store));
+}
+
+async function writeStoreToPostgresNow(store) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -316,6 +366,8 @@ export async function writeStoreToPostgres(store) {
     await upsertRows(client, store.violations, upsertViolation);
     await upsertRows(client, store.sessions || [], upsertSession);
     await upsertRows(client, store.auditLogs || [], upsertAuditLog);
+    await upsertSetting(client, "access_control", store.accessControl || {});
+    await upsertSetting(client, "exam_settings", store.examSettings || {});
 
     await client.query("COMMIT");
   } catch (error) {
@@ -324,6 +376,73 @@ export async function writeStoreToPostgres(store) {
   } finally {
     client.release();
   }
+}
+
+export async function touchSessionInPostgres(sessionId, lastSeenAt) {
+  return enqueueWrite(() => pool.query(
+    "UPDATE active_sessions SET last_seen_at = $2 WHERE id = $1",
+    [sessionId, lastSeenAt || new Date().toISOString()]
+  ));
+}
+
+export async function deleteSessionFromPostgres(sessionId) {
+  return enqueueWrite(() => pool.query("DELETE FROM active_sessions WHERE id = $1", [sessionId]));
+}
+
+export async function saveAttemptToPostgres(row) {
+  return enqueueWrite(async () => {
+    const client = await pool.connect();
+    try {
+      await upsertAttempt(client, row);
+    } finally {
+      client.release();
+    }
+  });
+}
+
+export async function saveViolationToPostgres(row) {
+  return enqueueWrite(async () => {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      if (row.dedupKey) {
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [row.dedupKey]);
+        const existing = await client.query(
+          `UPDATE violations
+           SET student_id = $1,
+               exam_id = $2,
+               type = $3,
+               level = $4,
+               message = $5,
+               metadata = violations.metadata || $6::jsonb,
+               updated_at = $7
+           WHERE dedup_key = $8
+           RETURNING id`,
+          [
+            row.studentId || null,
+            row.examId || null,
+            row.type,
+            row.level || "warning",
+            row.message || "",
+            JSON.stringify(row.metadata || {}),
+            row.updatedAt || new Date().toISOString(),
+            row.dedupKey
+          ]
+        );
+        if (existing.rowCount) {
+          await client.query("COMMIT");
+          return;
+        }
+      }
+      await upsertViolation(client, row);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  });
 }
 
 async function deleteMissingRows(client, table, rows) {
@@ -358,20 +477,21 @@ function upsertUser(client, row) {
 
 function upsertStudent(client, row) {
   return client.query(
-    `INSERT INTO students (id, nis, nisn, name, gender, username, password, class_name, elective_subjects, room, session)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11)
+    `INSERT INTO students (id, nis, nisn, name, gender, religion, username, password, class_name, elective_subjects, room, session)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12)
      ON CONFLICT (id) DO UPDATE SET
        nis = EXCLUDED.nis,
        nisn = EXCLUDED.nisn,
        name = EXCLUDED.name,
        gender = EXCLUDED.gender,
+       religion = EXCLUDED.religion,
        username = EXCLUDED.username,
        password = EXCLUDED.password,
        class_name = EXCLUDED.class_name,
        elective_subjects = EXCLUDED.elective_subjects,
        room = EXCLUDED.room,
        session = EXCLUDED.session`,
-    [row.id, row.nis, row.nisn || "", row.name, row.gender || "", row.username, row.password, row.className, JSON.stringify(row.electiveSubjects || []), row.room || "-", row.session || "-"]
+    [row.id, row.nis, row.nisn || "", row.name, row.gender || "", row.religion || "", row.username, row.password, row.className, JSON.stringify(row.electiveSubjects || []), row.room || "-", row.session || "-"]
   );
 }
 
@@ -466,32 +586,74 @@ function upsertAttempt(client, row) {
 
 function upsertViolation(client, row) {
   return client.query(
-    `INSERT INTO violations (id, student_id, exam_id, type, level, message, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO violations (id, student_id, exam_id, type, level, message, metadata, dedup_key, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)
      ON CONFLICT (id) DO UPDATE SET
        student_id = EXCLUDED.student_id,
        exam_id = EXCLUDED.exam_id,
        type = EXCLUDED.type,
        level = EXCLUDED.level,
        message = EXCLUDED.message,
-       created_at = EXCLUDED.created_at`,
-    [row.id, row.studentId || null, row.examId || null, row.type, row.level || "warning", row.message || "", row.createdAt || new Date().toISOString()]
+       metadata = EXCLUDED.metadata,
+       dedup_key = EXCLUDED.dedup_key,
+       created_at = EXCLUDED.created_at,
+       updated_at = EXCLUDED.updated_at`,
+    [
+      row.id,
+      row.studentId || null,
+      row.examId || null,
+      row.type,
+      row.level || "warning",
+      row.message || "",
+      JSON.stringify(row.metadata || {}),
+      row.dedupKey || null,
+      row.createdAt || new Date().toISOString(),
+      row.updatedAt || null
+    ]
   );
 }
 
 function upsertSession(client, row) {
   return client.query(
-    `INSERT INTO active_sessions (id, user_id, role, user_agent, ip_address, created_at, last_seen_at, expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO active_sessions (id, user_id, role, user_agent, ip_address, access_method, exam_client_verified, browser_token_id, browser_access_granted_at, created_at, last_seen_at, expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      ON CONFLICT (id) DO UPDATE SET
        user_id = EXCLUDED.user_id,
        role = EXCLUDED.role,
        user_agent = EXCLUDED.user_agent,
        ip_address = EXCLUDED.ip_address,
+       access_method = EXCLUDED.access_method,
+       exam_client_verified = EXCLUDED.exam_client_verified,
+       browser_token_id = EXCLUDED.browser_token_id,
+       browser_access_granted_at = EXCLUDED.browser_access_granted_at,
        created_at = EXCLUDED.created_at,
        last_seen_at = EXCLUDED.last_seen_at,
        expires_at = EXCLUDED.expires_at`,
-    [row.id, row.userId, row.role, row.userAgent || "", row.ipAddress || "", row.createdAt || new Date().toISOString(), row.lastSeenAt || new Date().toISOString(), row.expiresAt]
+    [
+      row.id,
+      row.userId,
+      row.role,
+      row.userAgent || "",
+      row.ipAddress || "",
+      row.accessMethod || "ordinary_browser",
+      !!row.examClientVerified,
+      row.browserTokenId || null,
+      row.browserAccessGrantedAt || null,
+      row.createdAt || new Date().toISOString(),
+      row.lastSeenAt || new Date().toISOString(),
+      row.expiresAt
+    ]
+  );
+}
+
+function upsertSetting(client, id, value) {
+  return client.query(
+    `INSERT INTO app_settings (id, value, updated_at)
+     VALUES ($1, $2::jsonb, NOW())
+     ON CONFLICT (id) DO UPDATE SET
+       value = EXCLUDED.value,
+       updated_at = NOW()`,
+    [id, JSON.stringify(value || {})]
   );
 }
 
