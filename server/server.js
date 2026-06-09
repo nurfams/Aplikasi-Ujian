@@ -9,7 +9,9 @@ import {
   initDatabase,
   postgresEnabled,
   readStoreFromPostgres,
+  saveAuditLogToPostgres,
   saveAttemptToPostgres,
+  saveLoginSessionToPostgres,
   saveViolationToPostgres,
   touchSessionInPostgres,
   writeStoreToPostgres
@@ -28,6 +30,7 @@ const examClientKey = process.env.EXAM_CLIENT_KEY || "dev-exam-client-key";
 const accessTokenChars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const examClientHeartbeatTimeoutMs = Number(process.env.EXAM_CLIENT_HEARTBEAT_TIMEOUT_SECONDS || 25) * 1000;
 const examClientHeartbeatRepeatMs = Number(process.env.EXAM_CLIENT_HEARTBEAT_REPEAT_SECONDS || 120) * 1000;
+const postgresStoreCacheMs = Number(process.env.POSTGRES_STORE_CACHE_MS || 500);
 
 app.use(cors());
 app.use(express.json({ limit: "8mb" }));
@@ -120,10 +123,33 @@ async function readSeedStore() {
   }
 }
 
+let postgresStoreCache = null;
+let postgresStoreCacheAt = 0;
+let postgresStoreReadPromise = null;
+
+function invalidatePostgresStoreCache() {
+  postgresStoreCache = null;
+  postgresStoreCacheAt = 0;
+}
+
 async function readStore() {
   if (postgresEnabled) {
     await initDatabase(await readSeedStore());
-    return normalizeStore(await readStoreFromPostgres());
+    const now = Date.now();
+    if (postgresStoreCache && now - postgresStoreCacheAt < postgresStoreCacheMs) {
+      return normalizeStore(structuredClone(postgresStoreCache));
+    }
+    postgresStoreReadPromise ??= readStoreFromPostgres()
+      .then((store) => {
+        const normalized = normalizeStore(store);
+        postgresStoreCache = structuredClone(normalized);
+        postgresStoreCacheAt = Date.now();
+        return normalized;
+      })
+      .finally(() => {
+        postgresStoreReadPromise = null;
+      });
+    return normalizeStore(structuredClone(await postgresStoreReadPromise));
   }
   await ensureStore();
   return normalizeStore(JSON.parse(await fs.readFile(storePath, "utf8")));
@@ -133,6 +159,7 @@ async function writeStore(store) {
   const normalized = normalizeStore(store);
   if (postgresEnabled) {
     await writeStoreToPostgres(normalized);
+    invalidatePostgresStoreCache();
     return;
   }
   await fs.writeFile(storePath, JSON.stringify(normalized, null, 2), "utf8");
@@ -141,6 +168,7 @@ async function writeStore(store) {
 async function persistAttemptChange(store, attempt) {
   if (postgresEnabled) {
     await saveAttemptToPostgres(attempt);
+    invalidatePostgresStoreCache();
     return;
   }
   await writeStore(store);
@@ -150,6 +178,7 @@ async function persistViolationChange(store, violation) {
   if (!violation) return;
   if (postgresEnabled) {
     await saveViolationToPostgres(violation);
+    invalidatePostgresStoreCache();
     return;
   }
   await writeStore(store);
@@ -169,11 +198,13 @@ async function persistAttemptAndViolationChanges(store, attempts = [], violation
   for (const violation of uniqueViolations) {
     await saveViolationToPostgres(violation);
   }
+  invalidatePostgresStoreCache();
 }
 
 async function persistSessionTouch(store, session) {
   if (postgresEnabled) {
     await touchSessionInPostgres(session.id, session.lastSeenAt);
+    invalidatePostgresStoreCache();
     return;
   }
   await writeStore(store);
@@ -182,9 +213,20 @@ async function persistSessionTouch(store, session) {
 async function persistSessionDelete(store, sessionId) {
   if (postgresEnabled) {
     await deleteSessionFromPostgres(sessionId);
+    invalidatePostgresStoreCache();
     return;
   }
   await writeStore(store);
+}
+
+async function persistLoginChange(store, session, auditLog, { replaceUserSessions = false } = {}) {
+  if (!postgresEnabled) {
+    await writeStore(store);
+    return;
+  }
+  await saveLoginSessionToPostgres(session, { replaceUserSessions });
+  if (auditLog) await saveAuditLogToPostgres(auditLog);
+  invalidatePostgresStoreCache();
 }
 
 function publicUser(user) {
@@ -396,6 +438,21 @@ function verifyPassword(storedPassword, plainPassword) {
 
   const [, iterationsText, salt, expected] = stored.split("$");
   const digest = crypto.pbkdf2Sync(plain, salt, Number(iterationsText), 32, "sha256").toString("hex");
+  return crypto.timingSafeEqual(Buffer.from(digest, "hex"), Buffer.from(expected, "hex"));
+}
+
+async function verifyPasswordAsync(storedPassword, plainPassword) {
+  const stored = String(storedPassword || "");
+  const plain = String(plainPassword || "");
+  if (!isPasswordHash(stored)) return stored === plain;
+
+  const [, iterationsText, salt, expected] = stored.split("$");
+  const digest = await new Promise((resolve, reject) => {
+    crypto.pbkdf2(plain, salt, Number(iterationsText), 32, "sha256", (error, derivedKey) => {
+      if (error) reject(error);
+      else resolve(derivedKey.toString("hex"));
+    });
+  });
   return crypto.timingSafeEqual(Buffer.from(digest, "hex"), Buffer.from(expected, "hex"));
 }
 
@@ -1004,7 +1061,7 @@ function canManageExam(user, exam) {
 
 function addAuditLog(store, req, action, entityType, entityId, message, metadata = {}) {
   store.auditLogs ??= [];
-  store.auditLogs.unshift({
+  const auditLog = {
     id: createId("audit"),
     userId: req.user?.id || "",
     username: req.user?.username || "",
@@ -1015,8 +1072,10 @@ function addAuditLog(store, req, action, entityType, entityId, message, metadata
     message,
     metadata,
     createdAt: new Date().toISOString()
-  });
+  };
+  store.auditLogs.unshift(auditLog);
   store.auditLogs = store.auditLogs.slice(0, 500);
+  return auditLog;
 }
 
 function filterExamsByUser(store, user) {
@@ -1155,14 +1214,17 @@ app.post("/api/login", async (req, res) => {
   const { username, password } = req.body ?? {};
   const store = await readStore();
   const user = store.users.find((item) => item.username === username);
-  if (!user || !verifyPassword(user.password, password)) {
+  if (!user || !(await verifyPasswordAsync(user.password, password))) {
     return res.status(401).json({ message: "Username atau password salah." });
   }
   if (isExamClientRequest(req) && user.role !== "siswa") {
-    addAuditLog(store, { ...req, user: publicUser(user) }, "blocked_exam_client_login", "session", "", `${user.name} ditolak login dari Exam Browser karena bukan akun siswa.`, {
+    const auditLog = addAuditLog(store, { ...req, user: publicUser(user) }, "blocked_exam_client_login", "session", "", `${user.name} ditolak login dari Exam Browser karena bukan akun siswa.`, {
       role: user.role
     });
-    await writeStore(store);
+    if (postgresEnabled) {
+      await saveAuditLogToPostgres(auditLog);
+      invalidatePostgresStoreCache();
+    } else await writeStore(store);
     return res.status(403).json({
       message: "Aplikasi Exam Browser hanya untuk peserta didik. Admin, guru, dan pengawas silakan login melalui browser biasa."
     });
@@ -1170,11 +1232,11 @@ app.post("/api/login", async (req, res) => {
   ensureHashedPassword(user);
   const loginSession = createLoginSession(req, store, user);
   const accessState = getStudentAccessState(store, loginSession);
-  addAuditLog(store, { ...req, user: publicUser(user) }, "login", "session", loginSession.id, `${user.name} login.`, {
+  const auditLog = addAuditLog(store, { ...req, user: publicUser(user) }, "login", "session", loginSession.id, `${user.name} login.`, {
     accessMethod: loginSession.accessMethod,
     accessState
   });
-  await writeStore(store);
+  await persistLoginChange(store, loginSession, auditLog, { replaceUserSessions: user.role === "siswa" });
   res.json({ user: { ...publicUser(user), accessState }, token: createSessionToken(user, loginSession.id) });
 });
 
@@ -1962,8 +2024,9 @@ app.post("/api/attempts/start", allowRoles("admin", "siswa"), async (req, res) =
   attempt.status = "in_progress";
   attempt.startedAt ??= new Date().toISOString();
   attempt.updatedAt = new Date().toISOString();
+  let violationToSave = null;
   if (wasInProgress && req.user.role === "siswa") {
-    addViolationLog(store, {
+    const { violation } = addViolationLog(store, {
       studentId: attempt.studentId,
       examId: attempt.examId,
       type: "attempt_resumed",
@@ -1971,9 +2034,10 @@ app.post("/api/attempts/start", allowRoles("admin", "siswa"), async (req, res) =
       message: "Peserta melanjutkan ujian yang sedang berjalan.",
       metadata: { attemptId: attempt.id }
     });
+    violationToSave = violation;
   }
   const questions = questionsForAttempt(store, exam, attempt);
-  await writeStore(store);
+  await persistAttemptAndViolationChanges(store, [attempt], violationToSave ? [violationToSave] : []);
   res.json({ attempt, exam, questions, availability });
 });
 
@@ -2018,7 +2082,7 @@ app.put("/api/attempts/:id/answers", allowRoles("admin", "siswa"), async (req, r
   if (req.user.role === "siswa" && req.user.id !== attempt.studentId) {
     return res.status(403).json({ message: "Peserta hanya bisa menyimpan jawaban miliknya sendiri." });
   }
-  if (attempt.status === "submitted") return res.status(409).json({ message: "Jawaban sudah final." });
+  if (attempt.status === "submitted") return res.status(409).json({ message: "Jawaban sudah final.", attempt });
 
   if (finishAttemptIfExpired(store, attempt, req.body.answers || {})) {
     await persistAttemptChange(store, attempt);
@@ -2076,6 +2140,9 @@ app.post("/api/attempts/:id/heartbeat", allowRoles("admin", "siswa"), async (req
   if (req.user.role === "siswa" && req.user.id !== attempt.studentId) {
     return res.status(403).json({ message: "Peserta hanya bisa mengirim heartbeat miliknya sendiri." });
   }
+  if (attempt.status === "submitted") {
+    return res.json({ ok: true, updatedAt: attempt.updatedAt, submitted: true, attempt });
+  }
   attempt.updatedAt = new Date().toISOString();
   let violationToSave = null;
   if (req.body.event && req.body.event !== "heartbeat") {
@@ -2094,7 +2161,7 @@ app.post("/api/attempts/:id/heartbeat", allowRoles("admin", "siswa"), async (req
     violationToSave = violation;
   }
   await persistAttemptAndViolationChanges(store, [attempt], violationToSave ? [violationToSave] : []);
-  res.json({ ok: true, updatedAt: attempt.updatedAt });
+  res.json({ ok: true, updatedAt: attempt.updatedAt, submitted: false, attempt });
 });
 
 app.post("/api/client-events", allowRoles("siswa"), async (req, res) => {

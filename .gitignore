@@ -6,3 +6,4 @@ dev-server.log
 api-server.*.log
 npm-debug.log*
 *.tmp
+benchmark/students.csv

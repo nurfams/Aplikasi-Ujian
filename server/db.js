@@ -389,6 +389,37 @@ export async function deleteSessionFromPostgres(sessionId) {
   return enqueueWrite(() => pool.query("DELETE FROM active_sessions WHERE id = $1", [sessionId]));
 }
 
+export async function saveLoginSessionToPostgres(session, { replaceUserSessions = false } = {}) {
+  return enqueueWrite(async () => {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("DELETE FROM active_sessions WHERE expires_at <= NOW()");
+      if (replaceUserSessions) {
+        await client.query("DELETE FROM active_sessions WHERE user_id = $1", [session.userId]);
+      }
+      await upsertSession(client, session);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  });
+}
+
+export async function saveAuditLogToPostgres(row) {
+  return enqueueWrite(async () => {
+    const client = await pool.connect();
+    try {
+      await upsertAuditLog(client, row);
+    } finally {
+      client.release();
+    }
+  });
+}
+
 export async function saveAttemptToPostgres(row) {
   return enqueueWrite(async () => {
     const client = await pool.connect();

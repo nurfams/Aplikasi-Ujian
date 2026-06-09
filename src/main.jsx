@@ -65,6 +65,7 @@ async function api(path, options = {}) {
     const requestError = new Error(error.message || "Request gagal.");
     requestError.code = error.code;
     requestError.accessState = error.accessState;
+    requestError.data = error;
     throw requestError;
   }
   return response.json();
@@ -4683,12 +4684,24 @@ function ExamTaking({ session, onFinished }) {
   const submitLockedText = `Submit tersedia ${submitUnlockMinutes} menit terakhir`;
   const unansweredCount = Math.max(0, currentQuestions.length - answeredCount);
 
+  function handleSubmittedAttempt(attempt) {
+    if (attempt?.status !== "submitted") return false;
+    setSubmittedAttempt(attempt);
+    setSubmitConfirmOpen(false);
+    setReloadNotice("Ujian sudah diselesaikan oleh sistem/admin.");
+    return true;
+  }
+
   async function choose(questionId, value) {
+    if (submittedAttempt) return;
     const next = { ...answers, [questionId]: value };
     setAnswers(next);
     setSaving(true);
     try {
-      await api(`/attempts/${session.attempt.id}/answers`, { method: "PUT", body: JSON.stringify({ answers: next }) });
+      const result = await api(`/attempts/${session.attempt.id}/answers`, { method: "PUT", body: JSON.stringify({ answers: next }) });
+      handleSubmittedAttempt(result);
+    } catch (error) {
+      if (!handleSubmittedAttempt(error.data?.attempt)) setReloadNotice(error.message);
     } finally {
       setSaving(false);
     }
@@ -4711,6 +4724,8 @@ function ExamTaking({ session, onFinished }) {
     try {
       const result = await api(`/attempts/${session.attempt.id}/submit`, { method: "POST", body: JSON.stringify({ answers }) });
       setSubmittedAttempt(result);
+    } catch (error) {
+      if (!handleSubmittedAttempt(error.data?.attempt)) setReloadNotice(error.message);
     } finally {
       setSaving(false);
     }
@@ -4727,11 +4742,33 @@ function ExamTaking({ session, onFinished }) {
       setCurrentIndex((index) => Math.min(index, Math.max(0, (result.questions || []).length - 1)));
       setReloadNotice("Soal berhasil dimuat ulang tanpa keluar ujian.");
     } catch (error) {
-      setReloadNotice(error.message);
+      if (!handleSubmittedAttempt(error.data?.attempt)) setReloadNotice(error.message);
     } finally {
       setSaving(false);
     }
   }
+
+  async function checkAttemptStatus() {
+    if (submittedAttempt) return;
+    try {
+      const result = await api(`/attempts/${session.attempt.id}/heartbeat`, {
+        method: "POST",
+        body: JSON.stringify({ event: "heartbeat" })
+      });
+      handleSubmittedAttempt(result.attempt);
+    } catch (error) {
+      handleSubmittedAttempt(error.data?.attempt);
+      // Status checks must not interrupt the exam screen.
+    }
+  }
+
+  useEffect(() => {
+    if (submittedAttempt) return undefined;
+    const timer = window.setInterval(() => {
+      checkAttemptStatus();
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [submittedAttempt, session.attempt.id]);
 
   function QuestionNumberGrid({ closeOnPick = false }) {
     return (
@@ -5037,10 +5074,10 @@ function StudentDashboard({ user, onExamModeChange }) {
     all: studentExams.length
   };
   const tabs = [
-    { key: "ready", label: "Bisa Dikerjakan", count: counts.ready },
-    { key: "upcoming", label: "Akan Datang", count: counts.upcoming },
-    { key: "finished", label: "Selesai", count: counts.finished },
-    { key: "all", label: "Semua", count: counts.all }
+    { key: "ready", icon: PlayCircle, label: "Bisa Dikerjakan", count: counts.ready },
+    { key: "finished", icon: CheckCircle2, label: "Selesai", count: counts.finished },
+    { key: "upcoming", icon: CalendarDays, label: "Akan Datang", count: counts.upcoming },
+    { key: "all", icon: ListChecks, label: "Semua", count: counts.all }
   ];
   const filteredExams = studentExams.filter((item) => {
     if (activeTab === "ready") return item.canStart && item.status !== "submitted";
@@ -5069,20 +5106,20 @@ function StudentDashboard({ user, onExamModeChange }) {
             {lastLoadedAt ? <span>Update {lastLoadedAt}</span> : null}
           </div>
         </div>
-        <div className="student-stat-strip">
-          <StatCard icon={PlayCircle} label="Bisa Dikerjakan" value={counts.ready} />
-          <StatCard icon={CalendarDays} label="Akan Datang" value={counts.upcoming} />
-          <StatCard icon={CheckCircle2} label="Selesai" value={counts.finished} />
+        <div className="student-stat-strip" role="tablist" aria-label="Filter ujian peserta">
+          {tabs.map((tab) => {
+            const Icon = tab.icon;
+            return (
+              <button type="button" className={`student-stat-filter${activeTab === tab.key ? " active" : ""}`} onClick={() => setActiveTab(tab.key)} key={tab.key}>
+                <span className="student-stat-icon"><Icon size={18} /></span>
+                <strong>{tab.count}</strong>
+                <small>{tab.label}</small>
+              </button>
+            );
+          })}
         </div>
       </div>
       {notice ? <div className="error-box">{notice}</div> : null}
-      <div className="exam-tabs">
-        {tabs.map((tab) => (
-          <button type="button" className={activeTab === tab.key ? "active" : ""} onClick={() => setActiveTab(tab.key)} key={tab.key}>
-            {tab.label} <span>{tab.count}</span>
-          </button>
-        ))}
-      </div>
       <div className="student-exam-list">
         {filteredExams.length ? filteredExams.map((item) => {
           const { exam, status, score, questionCount, canStart, scheduleStatus, scheduleMessage, remainingMs } = item;
@@ -5344,6 +5381,7 @@ function App() {
     if (user.role === "guru" && view === "questionTest") return "Dashboard Test Soal";
     if (user.role === "guru" && view === "results") return "Dashboard Hasil";
     if (user.role === "guru") return "Dashboard Bank Soal";
+    if (user.role === "siswa") return "Portal Peserta";
     if (user.role === "pengawas" || view === "monitoring") return "Dashboard Monitoring";
     if (view === "settings") return "Pengaturan Ujian";
     return "Dashboard Aplikasi Ujian";
@@ -5367,7 +5405,7 @@ function App() {
   }
 
   return (
-    <main className={`app-shell ${studentExamActive ? "exam-mode" : ""}`}>
+    <main className={`app-shell ${user.role === "siswa" ? "student-shell" : ""} ${studentExamActive ? "exam-mode" : ""}`}>
       <aside className="sidebar">
         <div className="sidebar-brand">
           <ShieldCheck size={26} />
