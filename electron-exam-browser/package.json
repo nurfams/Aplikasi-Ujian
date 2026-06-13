@@ -1,0 +1,8 @@
+{
+  "name": "cbt-sman94-exam-browser-windows",
+  "version": "0.1.0",
+  "description": "CBT SMAN 94 Windows Exam Browser",
+  "main": "main.cjs",
+  "private": true,
+  "author": "SMAN 94 Jakarta"
+}

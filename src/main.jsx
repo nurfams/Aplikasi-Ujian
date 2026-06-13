@@ -321,6 +321,7 @@ function formatResultStatus(status) {
   const labels = {
     not_started: "Belum Mengerjakan",
     in_progress: "Sedang Mengerjakan",
+    force_finishing: "Mengakhiri",
     submitted: "Selesai"
   };
   return labels[status] || status || "-";
@@ -360,6 +361,7 @@ function formatBytes(bytes) {
 
 function resultStatusClass(status) {
   if (status === "submitted") return "status-pill selected";
+  if (status === "force_finishing") return "status-pill danger";
   if (status === "in_progress") return "status-pill revision";
   return "status-pill";
 }
@@ -1631,7 +1633,7 @@ function MonitoringDashboard({ attempts, students, exams, violations, activeTab 
     if (item.status !== "in_progress") return;
     const reason = window.prompt(`Alasan paksa selesai untuk ${item.studentName}:`, "Pelanggaran saat ujian");
     if (reason === null) return;
-    const ok = window.confirm(`Paksa selesai ujian ${item.examCode} untuk ${item.studentName}? Jawaban terakhir akan disubmit final.`);
+    const ok = window.confirm(`Paksa selesai ujian ${item.examCode} untuk ${item.studentName}? Perangkat peserta akan diminta mengirim jawaban terakhir lalu ujian dikunci.`);
     if (!ok) return;
     await api(`/attempts/${item.id}/admin-finish`, {
       method: "POST",
@@ -1647,7 +1649,7 @@ function MonitoringDashboard({ attempts, students, exams, violations, activeTab 
         method: "POST",
         body: JSON.stringify({ attemptIds: selectedAttemptIds, reason: bulkFinishReason, password: bulkFinishPassword })
       });
-      setBulkNotice(`${result.finished} peserta berhasil dipaksa selesai. ${result.skipped ? `${result.skipped} peserta dilewati karena sudah tidak aktif.` : ""}`);
+      setBulkNotice(`${result.finished} peserta sedang diminta mengirim jawaban terakhir dan selesai paksa. ${result.skipped ? `${result.skipped} peserta dilewati karena sudah tidak aktif.` : ""}`);
       setSelectedAttemptIds([]);
       setBulkFinishOpen(false);
       setBulkFinishPassword("");
@@ -5141,6 +5143,7 @@ function ExamTaking({ session, onFinished }) {
   const autosaveTimerRef = useRef(null);
   const autosaveInFlightRef = useRef(false);
   const heartbeatTimerRef = useRef(null);
+  const forceSyncInFlightRef = useRef(false);
   const [pendingSaveCount, setPendingSaveCount] = useState(0);
   const [remainingMs, setRemainingMs] = useState(() => {
     if (Number.isFinite(session.availability?.remainingMs)) return session.availability.remainingMs;
@@ -5416,6 +5419,55 @@ function ExamTaking({ session, onFinished }) {
     return true;
   }
 
+  function buildFinalAnswers() {
+    return {
+      ...(session.attempt.answers || {}),
+      ...readAnswerSnapshot(),
+      ...readNativePendingAnswers(),
+      ...answersRef.current,
+      ...answers,
+      ...pendingAnswersRef.current
+    };
+  }
+
+  async function syncForceFinish(serverAttempt) {
+    if (!serverAttempt || serverAttempt.status !== "force_finishing") return handleSubmittedAttempt(serverAttempt);
+    if (submittedAttempt || forceSyncInFlightRef.current) return true;
+    forceSyncInFlightRef.current = true;
+    setSaving(true);
+    setSubmitConfirmOpen(false);
+    setReloadNotice("Admin menghentikan ujian. Mengirim jawaban terakhir dari perangkat...");
+    const finalAnswers = buildFinalAnswers();
+    persistAnswerSnapshot(finalAnswers);
+    persistPendingAnswers();
+    try {
+      const result = await api(`/attempts/${session.attempt.id}/final-sync`, {
+        method: "POST",
+        body: JSON.stringify({ answers: finalAnswers })
+      });
+      const finalAttempt = result.attempt || result;
+      clearPendingAnswers();
+      clearAnswerSnapshot();
+      setSubmittedAttempt(finalAttempt);
+      setReloadNotice("Ujian dihentikan admin. Jawaban terakhir sudah terkirim ke server.");
+      return true;
+    } catch (error) {
+      if (handleSubmittedAttempt(error.data?.attempt)) return true;
+      setReloadNotice("Admin menghentikan ujian. Jawaban lokal masih tersimpan dan akan dicoba sinkron ulang.");
+      persistPendingAnswers();
+      return false;
+    } finally {
+      forceSyncInFlightRef.current = false;
+      setSaving(false);
+    }
+  }
+
+  async function handleServerAttemptState(attempt) {
+    if (!attempt) return false;
+    if (attempt.status === "force_finishing") return syncForceFinish(attempt);
+    return handleSubmittedAttempt(attempt);
+  }
+
   function pendingStorageKey() {
     return `cbt_sman94_pending_answers_${session.attempt.id}`;
   }
@@ -5494,7 +5546,7 @@ function ExamTaking({ session, onFinished }) {
       if (!pendingAnswerCountRef.current) setReloadNotice("");
       return true;
     } catch (error) {
-      if (!handleSubmittedAttempt(error.data?.attempt)) setReloadNotice(error.message);
+      if (!await handleServerAttemptState(error.data?.attempt)) setReloadNotice(error.message);
       persistPendingAnswers();
       return false;
     } finally {
@@ -5564,14 +5616,7 @@ function ExamTaking({ session, onFinished }) {
   async function submit() {
     if (submittedAttempt) return;
     setSaving(true);
-    const finalAnswers = {
-      ...(session.attempt.answers || {}),
-      ...readAnswerSnapshot(),
-      ...readNativePendingAnswers(),
-      ...answersRef.current,
-      ...answers,
-      ...pendingAnswersRef.current
-    };
+    const finalAnswers = buildFinalAnswers();
     persistAnswerSnapshot(finalAnswers);
     try {
       if (!extraHighStability) await flushAnswers({ force: true });
@@ -5580,7 +5625,7 @@ function ExamTaking({ session, onFinished }) {
       clearAnswerSnapshot();
       setSubmittedAttempt(result);
     } catch (error) {
-      if (!handleSubmittedAttempt(error.data?.attempt)) setReloadNotice(error.message);
+      if (!await handleServerAttemptState(error.data?.attempt)) setReloadNotice(error.message);
     } finally {
       setSaving(false);
     }
@@ -5604,7 +5649,7 @@ function ExamTaking({ session, onFinished }) {
       if (result.attempt?.answers) mergeServerAnswers(result.attempt.answers);
       if (result.availability?.remainingMs !== undefined) setRemainingMs(result.availability.remainingMs);
     } catch (error) {
-      if (!handleSubmittedAttempt(error.data?.attempt) && !silent) setReloadNotice(error.message);
+      if (!await handleServerAttemptState(error.data?.attempt) && !silent) setReloadNotice(error.message);
     } finally {
       loadingQuestionIndexesRef.current.delete(index);
       if (!silent) setLoadingQuestion(false);
@@ -5632,7 +5677,7 @@ function ExamTaking({ session, onFinished }) {
       setCurrentIndex((index) => Math.min(index, Math.max(0, nextManifest.length - 1)));
       setReloadNotice("Soal berhasil dimuat ulang tanpa keluar ujian.");
     } catch (error) {
-      if (!handleSubmittedAttempt(error.data?.attempt)) setReloadNotice(error.message);
+      if (!await handleServerAttemptState(error.data?.attempt)) setReloadNotice(error.message);
     } finally {
       setSaving(false);
     }
@@ -5647,9 +5692,9 @@ function ExamTaking({ session, onFinished }) {
           body: JSON.stringify({ event: "heartbeat" })
         })
         : await api(`/attempts/${session.attempt.id}/status`);
-      handleSubmittedAttempt(result.attempt);
+      await handleServerAttemptState(result.attempt);
     } catch (error) {
-      handleSubmittedAttempt(error.data?.attempt);
+      await handleServerAttemptState(error.data?.attempt);
       // Status checks must not interrupt the exam screen.
     }
   }
@@ -5658,7 +5703,7 @@ function ExamTaking({ session, onFinished }) {
     if (submittedAttempt) return undefined;
     const schedule = () => {
       const jitterMs = heartbeatJitterSeconds > 0 ? Math.floor(Math.random() * heartbeatJitterSeconds * 1000) : 0;
-      const baseIntervalMs = heartbeatEnabled ? heartbeatIntervalSeconds * 1000 : Math.max(60, heartbeatIntervalSeconds) * 1000;
+      const baseIntervalMs = heartbeatEnabled ? heartbeatIntervalSeconds * 1000 : 10000;
       heartbeatTimerRef.current = window.setTimeout(async () => {
         await checkAttemptStatus();
         if (!submittedAttempt) schedule();

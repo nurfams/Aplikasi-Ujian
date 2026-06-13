@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CBT SMAN 94 Exam Browser</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, Segoe UI, Arial, sans-serif;
+        color: #102033;
+        background: #eaf0f6;
+      }
+      * { box-sizing: border-box; }
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        padding: 28px;
+      }
+      main {
+        width: min(960px, 100%);
+        background: #fff;
+        border: 1px solid #ccd8e6;
+        border-radius: 10px;
+        box-shadow: 0 22px 60px rgba(15, 23, 42, 0.12);
+        overflow: hidden;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        padding: 22px 26px;
+        border-bottom: 1px solid #d9e3ef;
+      }
+      h1 {
+        margin: 0;
+        font-size: 26px;
+        line-height: 1.1;
+      }
+      p {
+        margin: 6px 0 0;
+        color: #5d7088;
+      }
+      form {
+        padding: 24px 26px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+      label {
+        display: grid;
+        gap: 7px;
+        font-weight: 800;
+        color: #34455c;
+      }
+      input,
+      select {
+        min-height: 48px;
+        border: 1px solid #c7d4e5;
+        border-radius: 8px;
+        padding: 0 14px;
+        font: inherit;
+        font-weight: 700;
+        color: #102033;
+        background: #f8fbff;
+      }
+      .wide { grid-column: 1 / -1; }
+      .preview {
+        display: grid;
+        gap: 8px;
+        margin-top: 18px;
+        padding: 14px;
+        border: 1px dashed #9bb5d4;
+        border-radius: 8px;
+        background: #f7fbff;
+      }
+      code {
+        display: block;
+        padding: 8px 10px;
+        border-radius: 6px;
+        background: #edf3fa;
+        color: #0f2a4a;
+        overflow-wrap: anywhere;
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 20px;
+      }
+      button {
+        min-height: 46px;
+        border: 1px solid #c7d4e5;
+        border-radius: 8px;
+        padding: 0 16px;
+        font: inherit;
+        font-weight: 900;
+        cursor: pointer;
+        background: #fff;
+        color: #1c314a;
+      }
+      button.primary {
+        border-color: #1d4ed8;
+        background: #1d4ed8;
+        color: #fff;
+      }
+      button.danger {
+        border-color: #fecaca;
+        background: #fff1f2;
+        color: #b91c1c;
+      }
+      .notice {
+        display: none;
+        margin-top: 16px;
+        padding: 12px 14px;
+        border-radius: 8px;
+        font-weight: 800;
+      }
+      .notice.ok {
+        display: block;
+        border: 1px solid #86efac;
+        background: #dcfce7;
+        color: #166534;
+      }
+      .notice.error {
+        display: block;
+        border: 1px solid #fca5a5;
+        background: #fee2e2;
+        color: #991b1b;
+      }
+      .hint {
+        margin-top: 18px;
+        color: #64748b;
+        font-size: 14px;
+        line-height: 1.45;
+      }
+      @media (max-width: 760px) {
+        body { padding: 14px; }
+        header { align-items: flex-start; flex-direction: column; }
+        .grid { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>CBT SMAN 94 Exam Browser</h1>
+          <p>Konfigurasi awal aplikasi ujian Windows.</p>
+        </div>
+        <button type="button" class="danger" id="exitBtn">Keluar</button>
+      </header>
+      <form id="configForm">
+        <div class="grid">
+          <label class="wide">
+            Nama sekolah
+            <input id="schoolName" autocomplete="off" />
+          </label>
+          <label>
+            Protokol
+            <select id="webProtocol">
+              <option value="http">http</option>
+              <option value="https">https</option>
+            </select>
+          </label>
+          <label>
+            IP / domain server
+            <input id="webHost" placeholder="192.168.1.3 atau cbt.sekolah.sch.id" autocomplete="off" />
+          </label>
+          <label>
+            Port web
+            <input id="webPort" type="number" min="1" max="65535" />
+          </label>
+          <label>
+            Port API
+            <input id="apiPort" type="number" min="1" max="65535" />
+          </label>
+          <label>
+            Mode kiosk
+            <select id="kioskMode">
+              <option value="yes">Aktif</option>
+              <option value="no">Nonaktif</option>
+            </select>
+          </label>
+          <label>
+            DevTools
+            <select id="blockDevTools">
+              <option value="yes">Diblokir</option>
+              <option value="no">Diizinkan untuk testing</option>
+            </select>
+          </label>
+        </div>
+        <div class="preview">
+          <strong>Preview alamat</strong>
+          <code id="webPreview">-</code>
+          <code id="apiPreview">-</code>
+        </div>
+        <div class="actions">
+          <button type="button" id="testBtn">Test Koneksi API</button>
+          <button type="submit" id="saveBtn">Simpan Config</button>
+          <button type="button" class="primary" id="startBtn">Buka Ujian</button>
+        </div>
+        <div id="notice" class="notice"></div>
+        <p class="hint">
+          Aplikasi ini menyisipkan identitas Exam Browser resmi pada request ke server.
+          Admin/guru/pengawas tetap ditolak login dari aplikasi ini karena hanya untuk peserta didik.
+        </p>
+      </form>
+    </main>
+    <script>
+      const fields = {
+        schoolName: document.getElementById("schoolName"),
+        webProtocol: document.getElementById("webProtocol"),
+        webHost: document.getElementById("webHost"),
+        webPort: document.getElementById("webPort"),
+        apiPort: document.getElementById("apiPort"),
+        kioskMode: document.getElementById("kioskMode"),
+        blockDevTools: document.getElementById("blockDevTools")
+      };
+      const notice = document.getElementById("notice");
+      const webPreview = document.getElementById("webPreview");
+      const apiPreview = document.getElementById("apiPreview");
+
+      function readForm() {
+        return {
+          schoolName: fields.schoolName.value,
+          webProtocol: fields.webProtocol.value,
+          webHost: fields.webHost.value,
+          webPort: Number(fields.webPort.value),
+          apiPort: Number(fields.apiPort.value),
+          kioskMode: fields.kioskMode.value === "yes",
+          blockDevTools: fields.blockDevTools.value === "yes"
+        };
+      }
+
+      function setNotice(message, type) {
+        notice.textContent = message || "";
+        notice.className = message ? `notice ${type || "ok"}` : "notice";
+      }
+
+      function updatePreview() {
+        const config = readForm();
+        const webPort = Number(config.webPort);
+        const apiPort = Number(config.apiPort);
+        webPreview.textContent = `Web: ${config.webProtocol}://${config.webHost}:${webPort}/`;
+        apiPreview.textContent = `API: ${config.webProtocol}://${config.webHost}:${apiPort}/api`;
+      }
+
+      function fill(config) {
+        fields.schoolName.value = config.schoolName || "CBT SMAN 94";
+        fields.webProtocol.value = config.webProtocol || "http";
+        fields.webHost.value = config.webHost || "127.0.0.1";
+        fields.webPort.value = config.webPort || 5173;
+        fields.apiPort.value = config.apiPort || 4100;
+        fields.kioskMode.value = config.kioskMode === false ? "no" : "yes";
+        fields.blockDevTools.value = config.blockDevTools === false ? "no" : "yes";
+        updatePreview();
+      }
+
+      for (const field of Object.values(fields)) {
+        field.addEventListener("input", updatePreview);
+        field.addEventListener("change", updatePreview);
+      }
+
+      document.getElementById("configForm").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const result = await window.electronExam.saveConfig(readForm());
+        fill(result.config);
+        setNotice("Config berhasil disimpan.", "ok");
+      });
+
+      document.getElementById("testBtn").addEventListener("click", async () => {
+        setNotice("Mengetes koneksi API...", "ok");
+        const result = await window.electronExam.testConfig(readForm());
+        if (result.ok) setNotice(`Koneksi API berhasil: ${result.url}`, "ok");
+        else setNotice(`Koneksi gagal: ${result.message || result.status || "server tidak merespons"}`, "error");
+      });
+
+      document.getElementById("startBtn").addEventListener("click", async () => {
+        await window.electronExam.saveConfig(readForm());
+        await window.electronExam.startExam();
+      });
+
+      document.getElementById("exitBtn").addEventListener("click", () => window.electronExam.exit());
+
+      window.electronExam.getConfig().then((result) => fill(result.config));
+      window.electronExam.onError((message) => setNotice(message, "error"));
+    </script>
+  </body>
+</html>

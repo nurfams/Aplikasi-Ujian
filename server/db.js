@@ -218,6 +218,81 @@ function mapSession(row) {
   };
 }
 
+function mapStudent(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    nis: row.nis,
+    nisn: row.nisn || "",
+    name: row.name,
+    gender: row.gender || "",
+    religion: row.religion || "",
+    username: row.username,
+    password: row.password,
+    className: row.class_name,
+    electiveSubjects: row.elective_subjects || [],
+    room: row.room || "-",
+    session: row.session || "-"
+  };
+}
+
+function mapExam(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    code: row.code,
+    subject: row.subject,
+    teacherId: row.teacher_id,
+    teacherIds: row.teacher_ids || (row.teacher_id ? [row.teacher_id] : []),
+    date: row.exam_date,
+    startTime: row.start_time,
+    endTime: row.end_time || "",
+    durationMinutes: row.duration_minutes,
+    submitUnlockMinutes: row.submit_unlock_minutes ?? 30,
+    token: row.token,
+    status: row.status,
+    reviewStatus: row.review_status || "unreviewed",
+    randomizeQuestions: row.randomize_questions,
+    randomizeOptions: row.randomize_options
+  };
+}
+
+function mapQuestion(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    examId: row.exam_id,
+    type: row.type,
+    body: row.body,
+    image: row.image || "",
+    options: row.options || [],
+    answerKey: row.answer_key,
+    correctAnswers: row.correct_answers || [],
+    statements: row.statements || [],
+    pairs: row.pairs || [],
+    shortAnswers: row.short_answers || [],
+    answerRules: row.answer_rules || {},
+    score: Number(row.score)
+  };
+}
+
+function mapAttempt(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    examId: row.exam_id,
+    studentId: row.student_id,
+    status: row.status,
+    answers: row.answers || {},
+    questionOrder: row.question_order || [],
+    optionOrders: row.option_orders || {},
+    score: row.score,
+    startedAt: toIso(row.started_at),
+    submittedAt: toIso(row.submitted_at),
+    updatedAt: toIso(row.updated_at)
+  };
+}
+
 let writeQueue = Promise.resolve();
 
 function enqueueWrite(operation) {
@@ -391,6 +466,78 @@ export async function getAppSettingFromPostgres(id) {
   return result.rows[0]?.value;
 }
 
+export async function getStudentExamContextFromPostgres(studentId) {
+  const [student, attempts, examSettings] = await Promise.all([
+    pool.query("SELECT * FROM students WHERE id = $1 LIMIT 1", [studentId]),
+    pool.query("SELECT * FROM attempts WHERE student_id = $1 ORDER BY updated_at DESC NULLS LAST, id", [studentId]),
+    getAppSettingFromPostgres("exam_settings")
+  ]);
+  const mappedAttempts = attempts.rows.map(mapAttempt);
+  const examIds = [...new Set(mappedAttempts.map((attempt) => attempt.examId).filter(Boolean))];
+  if (!examIds.length) {
+    return { student: mapStudent(student.rows[0]), attempts: mappedAttempts, exams: [], questions: [], examSettings };
+  }
+  const [exams, questions] = await Promise.all([
+    pool.query("SELECT * FROM exams WHERE id = ANY($1::text[])", [examIds]),
+    pool.query("SELECT * FROM questions WHERE exam_id = ANY($1::text[]) ORDER BY exam_id, id", [examIds])
+  ]);
+  return {
+    student: mapStudent(student.rows[0]),
+    attempts: mappedAttempts,
+    exams: exams.rows.map(mapExam),
+    questions: questions.rows.map(mapQuestion),
+    examSettings
+  };
+}
+
+export async function getAttemptContextFromPostgres(attemptId) {
+  const attemptResult = await pool.query("SELECT * FROM attempts WHERE id = $1 LIMIT 1", [attemptId]);
+  const attempt = mapAttempt(attemptResult.rows[0]);
+  if (!attempt) return null;
+  const [exam, questions, examSettings] = await Promise.all([
+    pool.query("SELECT * FROM exams WHERE id = $1 LIMIT 1", [attempt.examId]),
+    pool.query("SELECT * FROM questions WHERE exam_id = $1 ORDER BY id", [attempt.examId]),
+    getAppSettingFromPostgres("exam_settings")
+  ]);
+  return {
+    attempt,
+    exam: mapExam(exam.rows[0]),
+    questions: questions.rows.map(mapQuestion),
+    examSettings
+  };
+}
+
+export async function getAttemptLightContextFromPostgres(attemptId) {
+  const attemptResult = await pool.query("SELECT * FROM attempts WHERE id = $1 LIMIT 1", [attemptId]);
+  const attempt = mapAttempt(attemptResult.rows[0]);
+  if (!attempt) return null;
+  const [exam, examSettings] = await Promise.all([
+    pool.query("SELECT * FROM exams WHERE id = $1 LIMIT 1", [attempt.examId]),
+    getAppSettingFromPostgres("exam_settings")
+  ]);
+  return {
+    attempt,
+    exam: mapExam(exam.rows[0]),
+    questions: [],
+    examSettings
+  };
+}
+
+export async function getAttemptStartContextFromPostgres(studentId, examId) {
+  const [attempt, exam, questions, examSettings] = await Promise.all([
+    pool.query("SELECT * FROM attempts WHERE student_id = $1 AND exam_id = $2 LIMIT 1", [studentId, examId]),
+    pool.query("SELECT * FROM exams WHERE id = $1 LIMIT 1", [examId]),
+    pool.query("SELECT * FROM questions WHERE exam_id = $1 ORDER BY id", [examId]),
+    getAppSettingFromPostgres("exam_settings")
+  ]);
+  return {
+    attempt: mapAttempt(attempt.rows[0]),
+    exam: mapExam(exam.rows[0]),
+    questions: questions.rows.map(mapQuestion),
+    examSettings
+  };
+}
+
 export async function getAuthContextFromPostgres(userId, sessionId) {
   const [user, session, accessControl] = await Promise.all([
     getUserByIdFromPostgres(userId),
@@ -489,6 +636,15 @@ export async function saveAttemptToPostgres(row) {
       client.release();
     }
   });
+}
+
+export async function saveAttemptHotToPostgres(row) {
+  const client = await pool.connect();
+  try {
+    await upsertAttempt(client, row);
+  } finally {
+    client.release();
+  }
 }
 
 export async function saveViolationToPostgres(row) {

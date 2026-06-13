@@ -141,6 +141,7 @@ k6 run benchmark/exam-flow.js
 ```
 
 > Saran: untuk benchmark serius, gunakan database testing atau backup database dulu. Simulasi peserta akan mengubah status attempt dan jawaban.
+> Jika benchmark dijalankan ulang dengan akun dan ujian yang sama, sebagian peserta bisa masuk kategori `no_ready_exam` karena attempt mereka sudah selesai. Reset attempt ujian percobaan atau gunakan ujian testing baru sebelum mengukur ulang.
 
 ## Mode Soak / Stress
 
@@ -220,6 +221,79 @@ Untuk uji realistis, `students.csv` sebaiknya berisi jumlah akun yang sama denga
 ```powershell
 $env:LIMIT="217"
 node benchmark/export-students.mjs
+```
+
+## Benchmark 4: Simulasi Ujian Nyata Sampai Submit
+
+Gunakan `real-submit-flow.js` kalau ingin simulasi yang lebih dekat dengan ujian sekolah:
+
+1. siswa login bertahap, bukan semua di detik yang sama
+2. siswa membuka portal
+3. siswa menekan mulai ujian bertahap
+4. siswa menjawab soal dengan jeda acak
+5. autosave dikirim per jawaban
+6. heartbeat dikirim berkala
+7. sebagian kecil siswa login ulang sekali
+8. siswa submit di akhir simulasi
+
+Sebelum menjalankan, pastikan akun di `benchmark/students.csv` memang peserta dari ujian yang sedang aktif dan belum selesai mengerjakan. Kalau tidak, metrik `no_ready_exam` akan naik.
+
+Tes 217 peserta:
+
+```powershell
+$env:LIMIT="217"
+node benchmark/export-students.mjs
+
+$env:TARGET_VUS="217"
+$env:EXAM_DURATION="30m"
+$env:LOGIN_SPREAD_SECONDS="120"
+$env:START_BUTTON_SPREAD_SECONDS="60"
+$env:HEARTBEAT_INTERVAL_SECONDS="60"
+$env:ANSWER_INTERVAL_SECONDS="0"
+$env:QUESTION_PREFETCH="1"
+$env:RELOGIN_PERCENT="3"
+$env:WRITE_RETRIES="1"
+$env:HTTP_TIMEOUT="60s"
+k6 run benchmark/real-submit-flow.js *> "$env:USERPROFILE\Desktop\benchmark-217-real-submit.txt"
+```
+
+Tes 648 peserta:
+
+```powershell
+$env:LIMIT="648"
+node benchmark/export-students.mjs
+
+$env:TARGET_VUS="648"
+$env:EXAM_DURATION="30m"
+$env:LOGIN_SPREAD_SECONDS="300"
+$env:START_BUTTON_SPREAD_SECONDS="120"
+$env:HEARTBEAT_INTERVAL_SECONDS="60"
+$env:ANSWER_INTERVAL_SECONDS="0"
+$env:QUESTION_PREFETCH="1"
+$env:RELOGIN_PERCENT="3"
+$env:WRITE_RETRIES="1"
+$env:HTTP_TIMEOUT="60s"
+k6 run benchmark/real-submit-flow.js *> "$env:USERPROFILE\Desktop\benchmark-648-real-submit.txt"
+```
+
+Jika ingin semua peserta dibuat lebih serentak, kecilkan `LOGIN_SPREAD_SECONDS` dan `START_BUTTON_SPREAD_SECONDS`. Untuk simulasi paling realistis di sekolah, biarkan login menyebar 3-5 menit.
+
+Variabel tambahan:
+
+- `LOGIN_SPREAD_SECONDS`: rentang waktu login peserta disebar.
+- `START_BUTTON_SPREAD_SECONDS`: rentang waktu klik mulai ujian setelah login.
+- `ANSWER_INTERVAL_SECONDS`: isi `0` agar script menghitung jeda otomatis supaya soal selesai sebelum durasi ujian habis.
+- `ANSWER_JITTER_SECONDS`: variasi jeda jawab agar tidak semua peserta autosave bersamaan.
+- `EXAM_CLIENT`: default `true`, request akan memakai header seperti Exam Browser.
+- `EXAM_CLIENT_KEY`: key Exam Browser jika nanti diubah di pengaturan server.
+- `DEBUG_LOGIN`: isi `true` untuk melihat username dan status ketika login gagal.
+- `WRITE_RETRIES`: jumlah retry untuk autosave, heartbeat, final sync, dan submit jika koneksi sempat putus. Default `1`.
+
+Jika ingin tes seperti browser biasa, bukan Exam Browser:
+
+```powershell
+$env:EXAM_CLIENT="false"
+k6 run benchmark/real-submit-flow.js
 ```
 
 ## Simulasi Bertahap

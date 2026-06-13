@@ -3,63 +3,76 @@ import { check, group, sleep } from "k6";
 import { Counter, Rate, Trend } from "k6/metrics";
 
 const BASE_URL = (__ENV.BASE_URL || "http://localhost:4100").replace(/\/$/, "");
-const STUDENTS_CSV = __ENV.STUDENTS_CSV || "benchmark/students.csv";
+const STUDENTS_CSV = __ENV.STUDENTS_CSV || "students.csv";
 const EXAM_TOKEN = __ENV.EXAM_TOKEN || "";
 const TARGET_VUS = Number(__ENV.TARGET_VUS || 50);
-const HTTP_TIMEOUT = __ENV.HTTP_TIMEOUT || "20s";
+const HTTP_TIMEOUT = __ENV.HTTP_TIMEOUT || "60s";
 const EXAM_DURATION_SECONDS = parseDuration(__ENV.EXAM_DURATION || "30m");
-const HEARTBEAT_INTERVAL_SECONDS = Number(__ENV.HEARTBEAT_INTERVAL_SECONDS || 20);
-const ANSWER_INTERVAL_SECONDS = Number(__ENV.ANSWER_INTERVAL_SECONDS || 15);
-const QUESTION_PREFETCH = Number(__ENV.QUESTION_PREFETCH || 2);
-const SUBMIT = String(__ENV.SUBMIT || "false").toLowerCase() === "true";
-const RELOGIN_PERCENT = Math.max(0, Math.min(100, Number(__ENV.RELOGIN_PERCENT || 5)));
-const RELOGIN_AT_PERCENT = Math.max(5, Math.min(95, Number(__ENV.RELOGIN_AT_PERCENT || 50)));
+const LOGIN_SPREAD_SECONDS = Number(__ENV.LOGIN_SPREAD_SECONDS || 180);
+const START_BUTTON_SPREAD_SECONDS = Number(__ENV.START_BUTTON_SPREAD_SECONDS || 60);
+const HEARTBEAT_INTERVAL_SECONDS = Number(__ENV.HEARTBEAT_INTERVAL_SECONDS || 60);
+const ANSWER_INTERVAL_SECONDS = Number(__ENV.ANSWER_INTERVAL_SECONDS || 0);
+const ANSWER_JITTER_SECONDS = Number(__ENV.ANSWER_JITTER_SECONDS || 8);
+const QUESTION_PREFETCH = Number(__ENV.QUESTION_PREFETCH || 1);
+const SUBMIT = String(__ENV.SUBMIT || "true").toLowerCase() !== "false";
+const RELOGIN_PERCENT = Math.max(0, Math.min(100, Number(__ENV.RELOGIN_PERCENT || 3)));
+const RELOGIN_AT_PERCENT = Math.max(5, Math.min(95, Number(__ENV.RELOGIN_AT_PERCENT || 55)));
+const EXAM_CLIENT = String(__ENV.EXAM_CLIENT || "true").toLowerCase() !== "false";
+const EXAM_CLIENT_KEY = __ENV.EXAM_CLIENT_KEY || "dev-exam-client-key";
+const DEBUG_LOGIN = String(__ENV.DEBUG_LOGIN || "false").toLowerCase() === "true";
+const WRITE_RETRIES = Math.max(0, Number(__ENV.WRITE_RETRIES || 1));
 
 let studentsCsvText = "";
 try {
   studentsCsvText = open(STUDENTS_CSV);
 } catch {
-  studentsCsvText = open("students.csv");
+  studentsCsvText = open("benchmark/students.csv");
 }
 const studentRows = parseCsv(studentsCsvText);
 
 export const options = {
   scenarios: {
-    ujian_nyata: {
+    ujian_real_submit: {
       executor: "shared-iterations",
       vus: TARGET_VUS,
       iterations: TARGET_VUS,
-      maxDuration: __ENV.MAX_DURATION || secondsToK6Duration(EXAM_DURATION_SECONDS + 10 * 60)
+      maxDuration: __ENV.MAX_DURATION || secondsToK6Duration(EXAM_DURATION_SECONDS + LOGIN_SPREAD_SECONDS + START_BUTTON_SPREAD_SECONDS + 15 * 60)
     }
   },
   thresholds: {
     http_req_failed: ["rate<0.03"],
     login_failed: ["rate<0.02"],
     portal_failed: ["rate<0.02"],
+    no_ready_exam: ["rate<0.05"],
     exam_start_failed: ["rate<0.05"],
     question_fetch_failed: ["rate<0.03"],
     autosave_failed: ["rate<0.03"],
-    heartbeat_failed: ["rate<0.03"]
+    heartbeat_failed: ["rate<0.03"],
+    submit_failed: ["rate<0.03"]
   }
 };
 
 const loginFailed = new Rate("login_failed");
 const portalFailed = new Rate("portal_failed");
+const noReadyExam = new Rate("no_ready_exam");
 const examStartFailed = new Rate("exam_start_failed");
 const questionFetchFailed = new Rate("question_fetch_failed");
 const autosaveFailed = new Rate("autosave_failed");
 const heartbeatFailed = new Rate("heartbeat_failed");
+const submitFailed = new Rate("submit_failed");
 const startedAttempts = new Counter("started_attempts");
-const reloginAttempts = new Counter("relogin_attempts");
 const fetchedQuestions = new Counter("fetched_questions");
 const answeredQuestions = new Counter("answered_questions");
 const submittedAttempts = new Counter("submitted_attempts");
+const reloginAttempts = new Counter("relogin_attempts");
 const finalSyncedAttempts = new Counter("final_synced_attempts");
 const loginDuration = new Trend("login_duration");
+const portalDuration = new Trend("portal_duration");
 const startDuration = new Trend("start_duration");
 const autosaveDuration = new Trend("autosave_duration");
 const heartbeatDuration = new Trend("heartbeat_duration");
 const questionFetchDuration = new Trend("question_fetch_duration");
+const submitDuration = new Trend("submit_duration");
 
 function parseDuration(value) {
   const text = String(value || "30m").trim().toLowerCase();
@@ -96,6 +109,10 @@ function jsonHeaders(token) {
     timeout: HTTP_TIMEOUT,
     headers: {
       "Content-Type": "application/json",
+      ...(EXAM_CLIENT ? {
+        "x-cbt-exam-client": "sman94-exam-browser",
+        "x-cbt-exam-client-key": EXAM_CLIENT_KEY
+      } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {})
     }
   };
@@ -108,6 +125,23 @@ function safeJson(response, selector) {
   } catch {
     return null;
   }
+}
+
+function randomBetween(min, max) {
+  if (max <= min) return min;
+  return min + Math.random() * (max - min);
+}
+
+function writeWithRetry(method, url, body, auth) {
+  let response = null;
+  for (let attempt = 0; attempt <= WRITE_RETRIES; attempt += 1) {
+    response = method === "post"
+      ? http.post(url, body, auth)
+      : http.put(url, body, auth);
+    if (response.status > 0 && response.status < 500) return response;
+    if (attempt < WRITE_RETRIES) sleep(randomBetween(0.2, 0.8));
+  }
+  return response;
 }
 
 function pickStudent() {
@@ -123,7 +157,7 @@ function chooseReadyExam(exams) {
 
 function firstAnswerFor(question) {
   if (question.type === "multiple_response") {
-    return [(question.options || [])[0]?.key || "A"];
+    return (question.options || []).slice(0, 1).map((option) => option.key).filter(Boolean);
   }
   if (question.type === "true_false") {
     return (question.statements || []).reduce((answers, statement) => {
@@ -146,7 +180,7 @@ function firstAnswerFor(question) {
 function login(student) {
   let token = "";
   let user = null;
-  group("login-sekali", () => {
+  group("login-peserta", () => {
     const response = http.post(
       `${BASE_URL}/api/login`,
       JSON.stringify({ username: student.username, password: student.password }),
@@ -161,6 +195,10 @@ function login(student) {
       "token peserta ada": (body) => Boolean(body?.token)
     });
     loginFailed.add(!ok);
+    if (!ok && DEBUG_LOGIN) {
+      const body = String(response.body || "").slice(0, 240);
+      console.log(`login gagal username=${student.username} status=${response.status} body=${body}`);
+    }
     if (ok) {
       token = loginJson.token;
       user = loginJson.user;
@@ -173,6 +211,7 @@ function openPortal(user, auth) {
   let selected = null;
   group("portal-peserta", () => {
     const response = http.get(`${BASE_URL}/api/student/${user.id}/exams`, auth);
+    portalDuration.add(response.timings.duration);
     const exams = safeJson(response);
     const ok = check(response, {
       "jadwal peserta 200": (res) => res.status === 200
@@ -182,12 +221,13 @@ function openPortal(user, auth) {
     portalFailed.add(!ok);
     if (ok) selected = chooseReadyExam(exams);
   });
+  noReadyExam.add(!selected);
   return selected;
 }
 
 function startExam(user, selected, auth) {
   let session = null;
-  group("mulai-ujian-sekali", () => {
+  group("mulai-ujian", () => {
     const response = http.post(
       `${BASE_URL}/api/attempts/start`,
       JSON.stringify({ studentId: user.id, examId: selected.exam.id, token: EXAM_TOKEN }),
@@ -224,6 +264,7 @@ function makeQuestionSlots(session) {
 }
 
 function fetchQuestion(attemptId, index, auth, slots) {
+  if (index < 0 || index >= slots.length) return null;
   if (slots[index]) return slots[index];
   const response = http.get(`${BASE_URL}/api/attempts/${attemptId}/question/${index}`, auth);
   questionFetchDuration.add(response.timings.duration);
@@ -240,16 +281,17 @@ function fetchQuestion(attemptId, index, auth, slots) {
   return json.question;
 }
 
-function autosave(attemptId, answers, auth) {
-  const response = http.put(
+function autosave(attemptId, answersPatch, auth, allAnswers) {
+  const response = writeWithRetry(
+    "put",
     `${BASE_URL}/api/attempts/${attemptId}/answers`,
-    JSON.stringify({ answers }),
+    JSON.stringify({ answersPatch }),
     auth
   );
   autosaveDuration.add(response.timings.duration);
   const json = safeJson(response);
   if (json?.forceFinishing || json?.attempt?.status === "force_finishing") {
-    return finalSync(attemptId, answers, auth);
+    return finalSync(attemptId, allAnswers, auth);
   }
   const ok = check(response, {
     "autosave 200/409": (res) => [200, 409].includes(res.status)
@@ -259,7 +301,8 @@ function autosave(attemptId, answers, auth) {
 }
 
 function heartbeat(attemptId, answers, auth) {
-  const response = http.post(
+  const response = writeWithRetry(
+    "post",
     `${BASE_URL}/api/attempts/${attemptId}/heartbeat`,
     JSON.stringify({ event: "heartbeat" }),
     auth
@@ -277,7 +320,8 @@ function heartbeat(attemptId, answers, auth) {
 }
 
 function finalSync(attemptId, answers, auth) {
-  const response = http.post(
+  const response = writeWithRetry(
+    "post",
     `${BASE_URL}/api/attempts/${attemptId}/final-sync`,
     JSON.stringify({ answers }),
     auth
@@ -290,8 +334,26 @@ function finalSync(attemptId, answers, auth) {
   return ok;
 }
 
+function submit(attemptId, answers, auth) {
+  const response = writeWithRetry(
+    "post",
+    `${BASE_URL}/api/attempts/${attemptId}/submit`,
+    JSON.stringify({ answers }),
+    auth
+  );
+  submitDuration.add(response.timings.duration);
+  const ok = check(response, {
+    "submit 200/409": (res) => [200, 409].includes(res.status)
+  });
+  submitFailed.add(!ok);
+  if (ok) submittedAttempts.add(1);
+  return ok;
+}
+
 export default function () {
   const student = pickStudent();
+  sleep(randomBetween(0, Math.max(0, LOGIN_SPREAD_SECONDS)));
+
   let { token, user } = login(student);
   if (!token || !user) return;
 
@@ -299,15 +361,21 @@ export default function () {
   const selected = openPortal(user, auth);
   if (!selected) return;
 
+  sleep(randomBetween(0, Math.max(0, START_BUTTON_SPREAD_SECONDS)));
+
   const session = startExam(user, selected, auth);
   if (!session?.attempt?.id) return;
 
   const attemptId = session.attempt.id;
   const { manifest, slots } = makeQuestionSlots(session);
   const answers = { ...(session.attempt.answers || {}) };
+  const answeredIds = new Set(Object.keys(answers));
   let answerIndex = 0;
   let nextHeartbeatAt = HEARTBEAT_INTERVAL_SECONDS;
-  let nextAnswerAt = Math.max(1, ANSWER_INTERVAL_SECONDS);
+  const baseAnswerInterval = ANSWER_INTERVAL_SECONDS > 0
+    ? ANSWER_INTERVAL_SECONDS
+    : Math.max(3, Math.floor((EXAM_DURATION_SECONDS * 0.82) / Math.max(1, manifest.length)));
+  let nextAnswerAt = randomBetween(2, Math.max(3, baseAnswerInterval));
   let reloginDone = false;
   const shouldRelogin = RELOGIN_PERCENT > 0 && ((__VU - 1) % 100) < RELOGIN_PERCENT;
   const reloginAt = Math.floor(EXAM_DURATION_SECONDS * (RELOGIN_AT_PERCENT / 100));
@@ -334,31 +402,27 @@ export default function () {
       for (let offset = 1; offset <= QUESTION_PREFETCH; offset += 1) {
         fetchQuestion(attemptId, answerIndex + offset, auth, slots);
       }
-      if (question) {
-        answers[question.id] = firstAnswerFor(question);
-        if (autosave(attemptId, answers, auth)) answeredQuestions.add(1);
-        answerIndex += 1;
+      if (question && !answeredIds.has(question.id)) {
+        const answer = firstAnswerFor(question);
+        answers[question.id] = answer;
+        answeredIds.add(question.id);
+        if (autosave(attemptId, { [question.id]: answer }, auth, answers)) answeredQuestions.add(1);
       }
-      nextAnswerAt += Math.max(1, ANSWER_INTERVAL_SECONDS);
+      answerIndex += 1;
+      nextAnswerAt += Math.max(1, baseAnswerInterval + randomBetween(-ANSWER_JITTER_SECONDS, ANSWER_JITTER_SECONDS));
     }
 
     if (elapsed >= nextHeartbeatAt) {
       heartbeat(attemptId, answers, auth);
-      nextHeartbeatAt += Math.max(5, HEARTBEAT_INTERVAL_SECONDS);
+      nextHeartbeatAt += Math.max(15, HEARTBEAT_INTERVAL_SECONDS + randomBetween(-5, 5));
     }
 
+    if (answerIndex >= manifest.length) break;
     sleep(1);
   }
 
   if (SUBMIT) {
-    group("submit-ujian", () => {
-      const response = http.post(
-        `${BASE_URL}/api/attempts/${attemptId}/submit`,
-        JSON.stringify({ answers }),
-        auth
-      );
-      const ok = check(response, { "submit 200/409": (res) => [200, 409].includes(res.status) });
-      if (ok) submittedAttempts.add(1);
-    });
+    sleep(randomBetween(1, 10));
+    submit(attemptId, answers, auth);
   }
 }

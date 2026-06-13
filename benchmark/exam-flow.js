@@ -61,6 +61,7 @@ const autosaveFailed = new Rate("autosave_failed");
 const heartbeatFailed = new Rate("heartbeat_failed");
 const startedAttempts = new Counter("started_attempts");
 const submittedAttempts = new Counter("submitted_attempts");
+const finalSyncedAttempts = new Counter("final_synced_attempts");
 
 function parseCsv(text) {
   const lines = text.trim().split(/\r?\n/).filter(Boolean);
@@ -124,6 +125,18 @@ function chooseReadyExam(exams) {
   return exams.find((item) => item.canStart && item.status !== "submitted")
     || exams.find((item) => item.status === "in_progress")
     || null;
+}
+
+function finalSync(attemptId, answers, auth) {
+  const response = http.post(
+    `${BASE_URL}/api/attempts/${attemptId}/final-sync`,
+    JSON.stringify({ answers }),
+    auth
+  );
+  const ok = check(response, { "final-sync 200": (res) => res.status === 200 });
+  if (ok) finalSyncedAttempts.add(1);
+  else autosaveFailed.add(true);
+  return ok;
 }
 
 export default function () {
@@ -210,6 +223,11 @@ export default function () {
         JSON.stringify({ answers }),
         auth
       );
+      const json = safeJson(response);
+      if (json?.forceFinishing || json?.attempt?.status === "force_finishing") {
+        finalSync(attempt.id, answers, auth);
+        return;
+      }
       const ok = check(response, {
         "autosave 200/409": (res) => [200, 409].includes(res.status)
       });
@@ -222,6 +240,11 @@ export default function () {
         JSON.stringify({ event: "heartbeat" }),
         auth
       );
+      const json = safeJson(response);
+      if (json?.forceFinishing || json?.attempt?.status === "force_finishing") {
+        finalSync(attempt.id, answers, auth);
+        return;
+      }
       const ok = check(response, { "heartbeat 200": (res) => res.status === 200 });
       heartbeatFailed.add(!ok);
     });

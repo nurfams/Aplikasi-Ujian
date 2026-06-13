@@ -7,3 +7,4 @@ api-server.*.log
 npm-debug.log*
 *.tmp
 benchmark/students.csv
+artifacts/windows-exam-browser/

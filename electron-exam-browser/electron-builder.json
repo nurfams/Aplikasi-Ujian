@@ -1,0 +1,25 @@
+{
+  "appId": "id.sman94.cbt.exam.windows",
+  "productName": "CBT SMAN 94 Exam Browser",
+  "directories": {
+    "output": "artifacts/windows-exam-browser"
+  },
+  "files": [
+    "electron-exam-browser/**/*",
+    "package.json"
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "portable",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "artifactName": "CBT-SMAN94-Exam-Browser-${version}-${arch}.${ext}"
+  },
+  "portable": {
+    "artifactName": "CBT-SMAN94-Exam-Browser-${version}-${arch}.${ext}"
+  }
+}

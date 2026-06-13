@@ -7,12 +7,17 @@ import { fileURLToPath } from "node:url";
 import {
   deleteSessionFromPostgres,
   getAppSettingFromPostgres,
+  getAttemptContextFromPostgres,
+  getAttemptLightContextFromPostgres,
+  getAttemptStartContextFromPostgres,
   getAuthContextFromPostgres,
+  getStudentExamContextFromPostgres,
   getUserByUsernameFromPostgres,
   initDatabase,
   postgresEnabled,
   readStoreFromPostgres,
   saveAuditLogToPostgres,
+  saveAttemptHotToPostgres,
   saveAttemptToPostgres,
   saveLoginSessionToPostgres,
   saveViolationToPostgres,
@@ -203,6 +208,15 @@ async function persistAttemptChange(store, attempt, { invalidateCache = true } =
   await writeStore(store);
 }
 
+async function persistHotAttemptChange(store, attempt, { invalidateCache = false } = {}) {
+  if (postgresEnabled) {
+    await saveAttemptHotToPostgres(attempt);
+    if (invalidateCache) invalidatePostgresStoreCache();
+    return;
+  }
+  await writeStore(store);
+}
+
 async function persistViolationChange(store, violation) {
   if (!violation) return;
   if (postgresEnabled) {
@@ -270,6 +284,21 @@ async function persistAuditLogChange(store, auditLog) {
 function publicUser(user) {
   const { password, ...safe } = user;
   return safe;
+}
+
+function hotStoreFromContext(context = {}) {
+  return normalizeStore({
+    users: [],
+    students: context.student ? [context.student] : [],
+    exams: context.exam ? [context.exam] : (context.exams || []),
+    questions: context.questions || [],
+    attempts: context.attempt ? [context.attempt] : (context.attempts || []),
+    violations: [],
+    sessions: [],
+    auditLogs: [],
+    accessControl: {},
+    examSettings: context.examSettings || {}
+  });
 }
 
 function base64Url(input) {
@@ -1043,6 +1072,54 @@ function finishAttempt(store, attempt, answers = {}) {
   return attempt;
 }
 
+const forceFinishSyncGraceMs = Math.max(10, Number(process.env.FORCE_FINISH_SYNC_GRACE_SECONDS || 45)) * 1000;
+
+function requestForceFinish(store, attempt, req, reason, type = "admin_force_finish") {
+  const now = new Date().toISOString();
+  attempt.status = "force_finishing";
+  attempt.updatedAt = now;
+  const { violation } = addViolationLog(store, {
+    studentId: attempt.studentId,
+    examId: attempt.examId,
+    type,
+    level: "critical",
+    message: `Admin meminta ujian dihentikan paksa oleh ${req.user.name}. Menunggu sinkronisasi jawaban terakhir dari perangkat peserta. Alasan: ${reason}`,
+    metadata: { attemptId: attempt.id, reason, forcedBy: req.user.id, requestedAt: now }
+  });
+  return violation;
+}
+
+function finishForceFinishingIfTimedOut(store, attempt) {
+  if (attempt.status !== "force_finishing") return false;
+  const requestedAt = Date.parse(attempt.updatedAt || attempt.startedAt || "");
+  if (!requestedAt || Number.isNaN(requestedAt)) return false;
+  if (Date.now() - requestedAt < forceFinishSyncGraceMs) return false;
+  finishAttempt(store, attempt);
+  addViolationLog(store, {
+    studentId: attempt.studentId,
+    examId: attempt.examId,
+    type: "admin_force_finish_timeout",
+    level: "warning",
+    message: "Ujian dikunci otomatis karena perangkat peserta tidak mengirim sinkronisasi jawaban final setelah force selesai.",
+    metadata: { attemptId: attempt.id, graceSeconds: Math.round(forceFinishSyncGraceMs / 1000) }
+  });
+  return true;
+}
+
+function finishForceFinishingAttempts(store, attempts = store.attempts) {
+  const changedAttempts = [];
+  const violations = [];
+  for (const attempt of attempts) {
+    const violationCountBefore = store.violations.length;
+    if (finishForceFinishingIfTimedOut(store, attempt)) {
+      changedAttempts.push(attempt);
+      const createdViolations = store.violations.slice(0, Math.max(0, store.violations.length - violationCountBefore));
+      violations.push(...createdViolations);
+    }
+  }
+  return { changed: changedAttempts.length > 0, attempts: changedAttempts, violations };
+}
+
 function finishAttemptIfExpired(store, attempt, answers = {}) {
   const exam = store.exams.find((item) => item.id === attempt.examId);
   if (!exam || attempt.status === "submitted") return false;
@@ -1073,6 +1150,20 @@ async function persistExpiredAttempts(store, result) {
   for (const attempt of result.attempts || []) {
     await saveAttemptToPostgres(attempt);
   }
+}
+
+async function persistAttemptMaintenance(store, results = []) {
+  const attempts = [];
+  const violations = [];
+  let changed = false;
+  for (const result of results) {
+    if (!result) continue;
+    if (result.changed) changed = true;
+    attempts.push(...(result.attempts || []));
+    violations.push(...(result.violations || []));
+  }
+  if (!changed && !attempts.length && !violations.length) return;
+  await persistAttemptAndViolationChanges(store, attempts, violations);
 }
 
 function violationDedupKey({ studentId, examId, type, metadata = {}, createdAt }) {
@@ -1333,6 +1424,39 @@ function filterAttemptsByUser(store, user) {
   if (user.role !== "guru") return enrichAttempts(store);
   const examIds = new Set(filterExamsByUser(store, user).map((exam) => exam.id));
   return enrichAttempts(store).filter((attempt) => examIds.has(attempt.examId));
+}
+
+async function loadAttemptHotContext(attemptId, { includeQuestions = true } = {}) {
+  if (!postgresEnabled) return null;
+  const context = includeQuestions
+    ? await getAttemptContextFromPostgres(attemptId)
+    : await getAttemptLightContextFromPostgres(attemptId);
+  if (!context?.attempt) return null;
+  return {
+    ...context,
+    store: hotStoreFromContext(context)
+  };
+}
+
+function buildStartedExamPayload(store, exam, attempt, requestedDeliveryMode = "") {
+  const payloadAnalysis = analyzeExamPayload(store, exam);
+  const examSettings = normalizeExamSettings(store.examSettings);
+  const deliveryMode = requestedDeliveryMode === "progressive"
+    ? "progressive"
+    : requestedDeliveryMode === "full" || examSettings.answerSyncMode === "extra_high"
+      ? "full"
+      : payloadAnalysis.recommendedDeliveryMode;
+  const questions = questionsForAttempt(store, exam, attempt);
+  return {
+    attempt,
+    exam,
+    questions: deliveryMode === "progressive" ? questions.slice(0, 1) : questions,
+    questionManifest: questionManifestForAttempt(store, exam, attempt),
+    deliveryMode,
+    payloadAnalysis,
+    examSettings,
+    availability: getExamAvailability(exam)
+  };
 }
 
 function attemptActivityTime(attempt) {
@@ -1656,7 +1780,7 @@ app.post("/api/exam-settings/token/regenerate", allowRoles("admin"), async (req,
 
 app.get("/api/summary", allowRoles("admin", "guru", "pengawas"), async (req, res) => {
   const store = await readStore();
-  await persistExpiredAttempts(store, expireEndedAttempts(store));
+  await persistAttemptMaintenance(store, [finishForceFinishingAttempts(store), expireEndedAttempts(store)]);
   const visibleExams = filterExamsByUser(store, req.user);
   const visibleExamIds = new Set(visibleExams.map((exam) => exam.id));
   res.json({
@@ -2294,16 +2418,18 @@ app.delete("/api/questions/:id", allowRoles("admin", "guru"), async (req, res) =
 app.get("/api/attempts", allowRoles("admin", "guru", "pengawas"), async (req, res) => {
   const store = await readStore();
   const expired = expireEndedAttempts(store);
+  const forceFinished = finishForceFinishingAttempts(store);
   const heartbeat = ensureExamClientHeartbeatViolations(store);
-  await persistAttemptAndViolationChanges(store, expired.attempts, heartbeat.violations);
+  await persistAttemptMaintenance(store, [forceFinished, expired, heartbeat]);
   res.json(filterAttemptsByUser(store, req.user));
 });
 
 app.get("/api/results", allowRoles("admin", "guru", "pengawas"), async (req, res) => {
   const store = await readStore();
   const expired = expireEndedAttempts(store);
+  const forceFinished = finishForceFinishingAttempts(store);
   const heartbeat = ensureExamClientHeartbeatViolations(store);
-  await persistAttemptAndViolationChanges(store, expired.attempts, heartbeat.violations);
+  await persistAttemptMaintenance(store, [forceFinished, expired, heartbeat]);
   res.json(filterAttemptsByUser(store, req.user).map((attempt) => ({
     ...attempt,
     answers: attempt.answers || {},
@@ -2317,10 +2443,39 @@ app.get("/api/student/:studentId/exams", allowRoles("admin", "siswa"), async (re
   if (req.user.role === "siswa" && req.user.id !== req.params.studentId) {
     return res.status(403).json({ message: "Peserta hanya bisa membuka jadwal miliknya sendiri." });
   }
+  if (postgresEnabled) {
+    const context = await getStudentExamContextFromPostgres(req.params.studentId);
+    const store = hotStoreFromContext(context);
+    const attempts = store.attempts;
+    const examSettings = normalizeExamSettings(store.examSettings);
+    await persistAttemptMaintenance(store, [finishForceFinishingAttempts(store, attempts), expireEndedAttempts(store, attempts)]);
+    return res.json(attempts.map((attempt) => {
+      const exam = store.exams.find((item) => item.id === attempt.examId);
+      const questionCount = store.questions.filter((question) => question.examId === attempt.examId).length;
+      if (!exam) return null;
+      const availability = getExamAvailability(exam);
+      if (req.user.role === "siswa" && availability.scheduleStatus === "draft") return null;
+      return {
+        ...attempt,
+        score: examSettings.showStudentScores ? attempt.score : null,
+        exam,
+        questionCount,
+        payloadAnalysis: analyzeExamPayload(store, exam),
+        scheduleStatus: availability.scheduleStatus,
+        scheduleMessage: availability.message,
+        canStart: availability.canStart && attempt.status !== "submitted",
+        tokenRequired: !examSettings.examWithoutToken && attempt.status !== "in_progress",
+        startAt: availability.startAt,
+        endAt: availability.endAt,
+        serverTime: availability.serverTime,
+        remainingMs: availability.remainingMs
+      };
+    }).filter(Boolean));
+  }
   const store = await readStore();
   const attempts = store.attempts.filter((attempt) => attempt.studentId === req.params.studentId);
   const examSettings = normalizeExamSettings(store.examSettings);
-  await persistExpiredAttempts(store, expireEndedAttempts(store, attempts));
+  await persistAttemptMaintenance(store, [finishForceFinishingAttempts(store, attempts), expireEndedAttempts(store, attempts)]);
   res.json(attempts.map((attempt) => {
     const exam = store.exams.find((item) => item.id === attempt.examId);
     const questionCount = store.questions.filter((question) => question.examId === attempt.examId).length;
@@ -2346,11 +2501,57 @@ app.get("/api/student/:studentId/exams", allowRoles("admin", "siswa"), async (re
 });
 
 app.post("/api/attempts/start", allowRoles("admin", "siswa"), async (req, res) => {
-  const store = await readStore();
   const { studentId, examId, token } = req.body ?? {};
   if (req.user.role === "siswa" && req.user.id !== studentId) {
     return res.status(403).json({ message: "Peserta hanya bisa memulai ujian miliknya sendiri." });
   }
+  if (postgresEnabled) {
+    const context = await getAttemptStartContextFromPostgres(studentId, examId);
+    const store = hotStoreFromContext(context);
+    const exam = context.exam;
+    if (!exam) return res.status(404).json({ message: "Ujian tidak ditemukan." });
+    const availability = getExamAvailability(exam);
+    if (!availability.canStart) return res.status(403).json({ message: availability.message, availability });
+
+    let attempt = context.attempt;
+    const wasInProgress = attempt?.status === "in_progress";
+    if (!attempt && req.user.role === "siswa") {
+      return res.status(403).json({ message: "Akun ini belum terdaftar sebagai peserta ujian tersebut." });
+    }
+    if (attempt?.status === "submitted") return res.status(409).json({ message: "Ujian sudah selesai disubmit.", attempt });
+    if (attempt?.status === "force_finishing") return res.status(409).json({ message: "Ujian sedang dihentikan admin. Mengirim sinkronisasi jawaban final.", forceFinishing: true, attempt });
+    if (attempt?.status !== "in_progress" && !validateGlobalExamToken(store, token)) {
+      return res.status(403).json({ message: "Token ujian salah." });
+    }
+    if (!attempt) {
+      attempt = { id: createId("attempt"), examId, studentId, status: "not_started", answers: {}, questionOrder: [], optionOrders: {}, score: null, startedAt: null, submittedAt: null, updatedAt: null };
+      store.attempts.push(attempt);
+    }
+
+    attempt.status = "in_progress";
+    attempt.startedAt ??= new Date().toISOString();
+    attempt.updatedAt = new Date().toISOString();
+    let violationToSave = null;
+    if (wasInProgress && req.user.role === "siswa") {
+      const { violation } = addViolationLog(store, {
+        studentId: attempt.studentId,
+        examId: attempt.examId,
+        type: "attempt_resumed",
+        level: "info",
+        message: "Peserta melanjutkan ujian yang sedang berjalan.",
+        metadata: { attemptId: attempt.id }
+      });
+      violationToSave = violation;
+    }
+    const payload = buildStartedExamPayload(store, exam, attempt, String(req.body?.deliveryMode || "").toLowerCase());
+    if (violationToSave) {
+      await persistAttemptAndViolationChanges(store, [attempt], [violationToSave], { invalidateCache: false });
+    } else {
+      await persistHotAttemptChange(store, attempt);
+    }
+    return res.json({ ...payload, availability });
+  }
+  const store = await readStore();
   const exam = store.exams.find((item) => item.id === examId);
   if (!exam) return res.status(404).json({ message: "Ujian tidak ditemukan." });
   const availability = getExamAvailability(exam);
@@ -2361,6 +2562,8 @@ app.post("/api/attempts/start", allowRoles("admin", "siswa"), async (req, res) =
   if (!attempt && req.user.role === "siswa") {
     return res.status(403).json({ message: "Akun ini belum terdaftar sebagai peserta ujian tersebut." });
   }
+  if (attempt?.status === "submitted") return res.status(409).json({ message: "Ujian sudah selesai disubmit.", attempt });
+  if (attempt?.status === "force_finishing") return res.status(409).json({ message: "Ujian sedang dihentikan admin. Mengirim sinkronisasi jawaban final.", forceFinishing: true, attempt });
   if (attempt?.status !== "in_progress" && !validateGlobalExamToken(store, token)) {
     return res.status(403).json({ message: "Token ujian salah." });
   }
@@ -2368,7 +2571,6 @@ app.post("/api/attempts/start", allowRoles("admin", "siswa"), async (req, res) =
     attempt = { id: createId("attempt"), examId, studentId, status: "not_started", answers: {}, questionOrder: [], optionOrders: {}, score: null, startedAt: null, submittedAt: null, updatedAt: null };
     store.attempts.push(attempt);
   }
-  if (attempt.status === "submitted") return res.status(409).json({ message: "Ujian sudah selesai disubmit." });
 
   attempt.status = "in_progress";
   attempt.startedAt ??= new Date().toISOString();
@@ -2409,6 +2611,35 @@ app.post("/api/attempts/start", allowRoles("admin", "siswa"), async (req, res) =
 });
 
 app.get("/api/attempts/:id/reload", allowRoles("admin", "siswa"), async (req, res) => {
+  if (postgresEnabled) {
+    const context = await loadAttemptHotContext(req.params.id);
+    if (!context) return res.status(404).json({ message: "Attempt tidak ditemukan." });
+    const { store, attempt, exam } = context;
+    if (req.user.role === "siswa" && req.user.id !== attempt.studentId) {
+      return res.status(403).json({ message: "Peserta hanya bisa memuat ulang ujian miliknya sendiri." });
+    }
+    if (!exam) return res.status(404).json({ message: "Ujian tidak ditemukan." });
+    if (attempt.status === "submitted") return res.status(409).json({ message: "Ujian sudah selesai disubmit." });
+    if (attempt.status === "force_finishing") return res.status(409).json({ message: "Ujian sedang dihentikan admin. Mengirim sinkronisasi jawaban final.", forceFinishing: true, attempt });
+    if (finishAttemptIfExpired(store, attempt)) {
+      await persistHotAttemptChange(store, attempt);
+      return res.status(409).json({ message: "Waktu ujian sudah berakhir. Jawaban sudah disubmit otomatis.", attempt });
+    }
+    let violationToSave = null;
+    if (req.user.role === "siswa") {
+      const { violation } = addViolationLog(store, {
+        studentId: attempt.studentId,
+        examId: attempt.examId,
+        type: "questions_reloaded",
+        level: "info",
+        message: "Peserta memuat ulang data soal tanpa keluar ujian.",
+        metadata: { attemptId: attempt.id }
+      });
+      violationToSave = violation;
+    }
+    await persistViolationChange(store, violationToSave);
+    return res.json(buildStartedExamPayload(store, exam, attempt, String(req.query.deliveryMode || "").toLowerCase()));
+  }
   const store = await readStore();
   const attempt = store.attempts.find((item) => item.id === req.params.id);
   if (!attempt) return res.status(404).json({ message: "Attempt tidak ditemukan." });
@@ -2418,6 +2649,7 @@ app.get("/api/attempts/:id/reload", allowRoles("admin", "siswa"), async (req, re
   const exam = store.exams.find((item) => item.id === attempt.examId);
   if (!exam) return res.status(404).json({ message: "Ujian tidak ditemukan." });
   if (attempt.status === "submitted") return res.status(409).json({ message: "Ujian sudah selesai disubmit." });
+  if (attempt.status === "force_finishing") return res.status(409).json({ message: "Ujian sedang dihentikan admin. Mengirim sinkronisasi jawaban final.", forceFinishing: true, attempt });
 
   const availability = getExamAvailability(exam);
   if (finishAttemptIfExpired(store, attempt)) {
@@ -2461,6 +2693,36 @@ app.get("/api/attempts/:id/reload", allowRoles("admin", "siswa"), async (req, re
 });
 
 app.get("/api/attempts/:id/question/:index", allowRoles("admin", "siswa"), async (req, res) => {
+  if (postgresEnabled) {
+    const context = await loadAttemptHotContext(req.params.id);
+    if (!context) return res.status(404).json({ message: "Attempt tidak ditemukan." });
+    const { store, attempt, exam } = context;
+    if (req.user.role === "siswa" && req.user.id !== attempt.studentId) {
+      return res.status(403).json({ message: "Peserta hanya bisa membuka soal miliknya sendiri." });
+    }
+    if (attempt.status === "submitted") return res.status(409).json({ message: "Ujian sudah selesai disubmit.", attempt });
+    if (attempt.status === "force_finishing") return res.status(409).json({ message: "Ujian sedang dihentikan admin. Mengirim sinkronisasi jawaban final.", forceFinishing: true, attempt });
+    if (!exam) return res.status(404).json({ message: "Ujian tidak ditemukan." });
+    if (finishAttemptIfExpired(store, attempt)) {
+      await persistHotAttemptChange(store, attempt);
+      return res.status(409).json({ message: "Waktu ujian sudah berakhir. Jawaban sudah disubmit otomatis.", attempt });
+    }
+    const index = Number(req.params.index);
+    if (!Number.isInteger(index) || index < 0) return res.status(400).json({ message: "Nomor soal tidak valid." });
+    const questions = questionsForAttempt(store, exam, attempt);
+    const question = questions[index];
+    if (!question) return res.status(404).json({ message: "Soal tidak ditemukan." });
+    return res.json({
+      attempt,
+      exam,
+      question,
+      index,
+      questionManifest: questionManifestForAttempt(store, exam, attempt),
+      payloadAnalysis: analyzeExamPayload(store, exam),
+      examSettings: normalizeExamSettings(store.examSettings),
+      availability: getExamAvailability(exam)
+    });
+  }
   const store = await readStore();
   const attempt = store.attempts.find((item) => item.id === req.params.id);
   if (!attempt) return res.status(404).json({ message: "Attempt tidak ditemukan." });
@@ -2468,6 +2730,7 @@ app.get("/api/attempts/:id/question/:index", allowRoles("admin", "siswa"), async
     return res.status(403).json({ message: "Peserta hanya bisa membuka soal miliknya sendiri." });
   }
   if (attempt.status === "submitted") return res.status(409).json({ message: "Ujian sudah selesai disubmit.", attempt });
+  if (attempt.status === "force_finishing") return res.status(409).json({ message: "Ujian sedang dihentikan admin. Mengirim sinkronisasi jawaban final.", forceFinishing: true, attempt });
 
   const exam = store.exams.find((item) => item.id === attempt.examId);
   if (!exam) return res.status(404).json({ message: "Ujian tidak ditemukan." });
@@ -2495,6 +2758,36 @@ app.get("/api/attempts/:id/question/:index", allowRoles("admin", "siswa"), async
 });
 
 app.put("/api/attempts/:id/answers", allowRoles("admin", "siswa"), async (req, res) => {
+  if (postgresEnabled) {
+    let context = await loadAttemptHotContext(req.params.id, { includeQuestions: false });
+    if (!context) return res.status(404).json({ message: "Attempt tidak ditemukan." });
+    let { store, attempt } = context;
+    if (req.user.role === "siswa" && req.user.id !== attempt.studentId) {
+      return res.status(403).json({ message: "Peserta hanya bisa menyimpan jawaban miliknya sendiri." });
+    }
+    if (attempt.status === "submitted") return res.status(409).json({ message: "Jawaban sudah final.", attempt });
+    const incomingAnswers = req.body.answersPatch && typeof req.body.answersPatch === "object"
+      ? req.body.answersPatch
+      : req.body.answers && typeof req.body.answers === "object"
+        ? req.body.answers
+        : {};
+    if (attempt.status === "force_finishing") {
+      return res.status(409).json({ message: "Ujian sedang dihentikan admin. Mengirim sinkronisasi jawaban final.", forceFinishing: true, attempt });
+    }
+    if (getExamAvailability(context.exam).scheduleStatus === "ended") {
+      context = await loadAttemptHotContext(req.params.id, { includeQuestions: true });
+      ({ store, attempt } = context);
+    }
+    if (finishAttemptIfExpired(context.store, context.attempt, { ...(context.attempt.answers || {}), ...incomingAnswers })) {
+      await persistHotAttemptChange(store, attempt);
+      return res.status(409).json({ message: "Waktu ujian sudah berakhir. Jawaban terakhir sudah disubmit otomatis.", attempt });
+    }
+    attempt.answers = { ...(attempt.answers || {}), ...incomingAnswers };
+    attempt.status = "in_progress";
+    attempt.updatedAt = new Date().toISOString();
+    await persistHotAttemptChange(store, attempt);
+    return res.json(attempt);
+  }
   const store = await readStore();
   const attempt = store.attempts.find((item) => item.id === req.params.id);
   if (!attempt) return res.status(404).json({ message: "Attempt tidak ditemukan." });
@@ -2509,6 +2802,10 @@ app.put("/api/attempts/:id/answers", allowRoles("admin", "siswa"), async (req, r
       ? req.body.answers
       : {};
 
+  if (attempt.status === "force_finishing") {
+    return res.status(409).json({ message: "Ujian sedang dihentikan admin. Mengirim sinkronisasi jawaban final.", forceFinishing: true, attempt });
+  }
+
   if (finishAttemptIfExpired(store, attempt, { ...(attempt.answers || {}), ...incomingAnswers })) {
     await persistAttemptChange(store, attempt);
     return res.status(409).json({ message: "Waktu ujian sudah berakhir. Jawaban terakhir sudah disubmit otomatis.", attempt });
@@ -2522,6 +2819,20 @@ app.put("/api/attempts/:id/answers", allowRoles("admin", "siswa"), async (req, r
 });
 
 app.post("/api/attempts/:id/submit", allowRoles("admin", "siswa"), async (req, res) => {
+  if (postgresEnabled) {
+    const context = await loadAttemptHotContext(req.params.id);
+    if (!context) return res.status(404).json({ message: "Attempt tidak ditemukan." });
+    const { store, attempt } = context;
+    if (req.user.role === "siswa" && req.user.id !== attempt.studentId) {
+      return res.status(403).json({ message: "Peserta hanya bisa submit jawaban miliknya sendiri." });
+    }
+    if (attempt.status === "submitted") {
+      return res.status(409).json({ message: "Ujian sudah selesai. Jawaban final tidak bisa ditimpa.", attempt });
+    }
+    finishAttempt(store, attempt, req.body.answers || {});
+    await persistHotAttemptChange(store, attempt, { invalidateCache: true });
+    return res.json(attempt);
+  }
   const store = await readStore();
   const attempt = store.attempts.find((item) => item.id === req.params.id);
   if (!attempt) return res.status(404).json({ message: "Attempt tidak ditemukan." });
@@ -2537,27 +2848,85 @@ app.post("/api/attempts/:id/submit", allowRoles("admin", "siswa"), async (req, r
   res.json(attempt);
 });
 
+app.post("/api/attempts/:id/final-sync", allowRoles("admin", "siswa"), async (req, res) => {
+  if (postgresEnabled) {
+    const context = await loadAttemptHotContext(req.params.id);
+    if (!context) return res.status(404).json({ message: "Attempt tidak ditemukan." });
+    const { store, attempt } = context;
+    if (req.user.role === "siswa" && req.user.id !== attempt.studentId) {
+      return res.status(403).json({ message: "Peserta hanya bisa sinkronisasi jawaban miliknya sendiri." });
+    }
+    if (attempt.status === "submitted") {
+      return res.json({ ok: true, submitted: true, attempt });
+    }
+    const answers = req.body.answers && typeof req.body.answers === "object" ? req.body.answers : {};
+    const wasForceFinishing = attempt.status === "force_finishing";
+    finishAttempt(store, attempt, answers);
+    const violationsToSave = [];
+    if (wasForceFinishing) {
+      const { violation } = addViolationLog(store, {
+        studentId: attempt.studentId,
+        examId: attempt.examId,
+        type: "admin_force_finish_final_sync",
+        level: "info",
+        message: "Perangkat peserta berhasil mengirim jawaban terakhir setelah admin memaksa selesai.",
+        metadata: { attemptId: attempt.id, syncedAt: attempt.submittedAt }
+      });
+      violationsToSave.push(violation);
+    }
+    await persistAttemptAndViolationChanges(store, [attempt], violationsToSave, { invalidateCache: true });
+    return res.json({ ok: true, submitted: true, attempt });
+  }
+  const store = await readStore();
+  const attempt = store.attempts.find((item) => item.id === req.params.id);
+  if (!attempt) return res.status(404).json({ message: "Attempt tidak ditemukan." });
+  if (req.user.role === "siswa" && req.user.id !== attempt.studentId) {
+    return res.status(403).json({ message: "Peserta hanya bisa sinkronisasi jawaban miliknya sendiri." });
+  }
+  if (attempt.status === "submitted") {
+    return res.json({ ok: true, submitted: true, attempt });
+  }
+
+  const answers = req.body.answers && typeof req.body.answers === "object" ? req.body.answers : {};
+  const wasForceFinishing = attempt.status === "force_finishing";
+  finishAttempt(store, attempt, answers);
+  const violationsToSave = [];
+  if (wasForceFinishing) {
+    const { violation } = addViolationLog(store, {
+      studentId: attempt.studentId,
+      examId: attempt.examId,
+      type: "admin_force_finish_final_sync",
+      level: "info",
+      message: "Perangkat peserta berhasil mengirim jawaban terakhir setelah admin memaksa selesai.",
+      metadata: { attemptId: attempt.id, syncedAt: attempt.submittedAt }
+    });
+    violationsToSave.push(violation);
+  }
+  await persistAttemptAndViolationChanges(store, [attempt], violationsToSave);
+  res.json({ ok: true, submitted: true, attempt });
+});
+
 app.post("/api/attempts/:id/admin-finish", allowRoles("admin", "pengawas"), async (req, res) => {
   const store = await readStore();
   const attempt = store.attempts.find((item) => item.id === req.params.id);
   if (!attempt) return res.status(404).json({ message: "Attempt tidak ditemukan." });
   if (attempt.status === "submitted") return res.status(409).json({ message: "Ujian peserta sudah selesai." });
+  if (attempt.status !== "in_progress" && attempt.status !== "force_finishing") {
+    return res.status(409).json({ message: "Force selesai hanya bisa untuk peserta yang sedang mengerjakan." });
+  }
   const reason = String(req.body.reason || "Dipaksa selesai oleh admin/pengawas.").slice(0, 300);
-  finishAttempt(store, attempt);
-  addViolationLog(store, {
-    studentId: attempt.studentId,
-    examId: attempt.examId,
-    type: "admin_force_finish",
-    level: "critical",
-    message: `Ujian dipaksa selesai oleh ${req.user.name}. Alasan: ${reason}`,
-    metadata: { attemptId: attempt.id, reason, forcedBy: req.user.id }
-  });
-  addAuditLog(store, req, "force_finish_attempt", "attempt", attempt.id, `Ujian peserta dipaksa selesai. Alasan: ${reason}`, {
+  const violation = requestForceFinish(store, attempt, req, reason, "admin_force_finish");
+  const auditLog = addAuditLog(store, req, "force_finish_attempt", "attempt", attempt.id, `Ujian peserta diminta selesai paksa. Alasan: ${reason}`, {
     studentId: attempt.studentId,
     examId: attempt.examId,
     reason
   });
-  await writeStore(store);
+  if (postgresEnabled) {
+    await persistAttemptAndViolationChanges(store, [attempt], [violation]);
+    await persistAuditLogChange(store, auditLog);
+  } else {
+    await writeStore(store);
+  }
   res.json(attempt);
 });
 
@@ -2573,18 +2942,10 @@ app.post("/api/attempts/admin-finish-bulk", allowRoles("admin", "pengawas"), asy
   const attemptsToFinish = store.attempts.filter((attempt) => attemptIds.includes(attempt.id) && attempt.status === "in_progress");
   const violationsToSave = [];
   for (const attempt of attemptsToFinish) {
-    finishAttempt(store, attempt);
-    const { violation } = addViolationLog(store, {
-      studentId: attempt.studentId,
-      examId: attempt.examId,
-      type: "admin_force_finish_bulk",
-      level: "critical",
-      message: `Ujian dipaksa selesai massal oleh ${req.user.name}. Alasan: ${reason}`,
-      metadata: { attemptId: attempt.id, reason, forcedBy: req.user.id }
-    });
+    const violation = requestForceFinish(store, attempt, req, reason, "admin_force_finish_bulk");
     violationsToSave.push(violation);
   }
-  const auditLog = addAuditLog(store, req, "force_finish_attempt_bulk", "attempt", "bulk", `${attemptsToFinish.length} ujian peserta dipaksa selesai massal. Alasan: ${reason}`, {
+  const auditLog = addAuditLog(store, req, "force_finish_attempt_bulk", "attempt", "bulk", `${attemptsToFinish.length} ujian peserta diminta selesai paksa massal. Alasan: ${reason}`, {
     requested: attemptIds.length,
     finished: attemptsToFinish.length,
     skipped: attemptIds.length - attemptsToFinish.length,
@@ -2602,19 +2963,75 @@ app.post("/api/attempts/admin-finish-bulk", allowRoles("admin", "pengawas"), asy
 });
 
 app.get("/api/attempts/:id/status", allowRoles("admin", "siswa"), async (req, res) => {
+  if (postgresEnabled) {
+    const context = await loadAttemptHotContext(req.params.id);
+    if (!context) return res.status(404).json({ message: "Attempt tidak ditemukan." });
+    const { store, attempt } = context;
+    if (req.user.role === "siswa" && req.user.id !== attempt.studentId) {
+      return res.status(403).json({ message: "Peserta hanya bisa mengecek status ujian miliknya sendiri." });
+    }
+    const violationsBefore = store.violations.length;
+    if (finishForceFinishingIfTimedOut(store, attempt) || finishAttemptIfExpired(store, attempt)) {
+      await persistAttemptAndViolationChanges(store, [attempt], store.violations.slice(0, Math.max(0, store.violations.length - violationsBefore)), { invalidateCache: true });
+    }
+    return res.json({ ok: true, submitted: attempt.status === "submitted", forceFinishing: attempt.status === "force_finishing", attempt });
+  }
   const store = await readStore();
   const attempt = store.attempts.find((item) => item.id === req.params.id);
   if (!attempt) return res.status(404).json({ message: "Attempt tidak ditemukan." });
   if (req.user.role === "siswa" && req.user.id !== attempt.studentId) {
     return res.status(403).json({ message: "Peserta hanya bisa mengecek status ujian miliknya sendiri." });
   }
-  if (finishAttemptIfExpired(store, attempt)) {
-    await persistAttemptChange(store, attempt);
+  const violationsBefore = store.violations.length;
+  if (finishForceFinishingIfTimedOut(store, attempt) || finishAttemptIfExpired(store, attempt)) {
+    await persistAttemptAndViolationChanges(store, [attempt], store.violations.slice(0, Math.max(0, store.violations.length - violationsBefore)));
   }
-  res.json({ ok: true, submitted: attempt.status === "submitted", attempt });
+  res.json({ ok: true, submitted: attempt.status === "submitted", forceFinishing: attempt.status === "force_finishing", attempt });
 });
 
 app.post("/api/attempts/:id/heartbeat", allowRoles("admin", "siswa"), async (req, res) => {
+  if (postgresEnabled) {
+    const context = await loadAttemptHotContext(req.params.id);
+    if (!context) return res.status(404).json({ message: "Attempt tidak ditemukan." });
+    const { store, attempt } = context;
+    if (req.user.role === "siswa" && req.user.id !== attempt.studentId) {
+      return res.status(403).json({ message: "Peserta hanya bisa mengirim heartbeat miliknya sendiri." });
+    }
+    if (attempt.status === "submitted") {
+      return res.json({ ok: true, updatedAt: attempt.updatedAt, submitted: true, attempt });
+    }
+    if (attempt.status === "force_finishing") {
+      const violationsBefore = store.violations.length;
+      if (finishForceFinishingIfTimedOut(store, attempt)) {
+        await persistAttemptAndViolationChanges(store, [attempt], store.violations.slice(0, Math.max(0, store.violations.length - violationsBefore)), { invalidateCache: true });
+        return res.json({ ok: true, updatedAt: attempt.updatedAt, submitted: true, attempt });
+      }
+      return res.json({ ok: true, updatedAt: attempt.updatedAt, submitted: false, forceFinishing: true, attempt });
+    }
+    attempt.updatedAt = new Date().toISOString();
+    let violationToSave = null;
+    if (req.body.event && req.body.event !== "heartbeat") {
+      const { violation } = addViolationLog(store, {
+        studentId: attempt.studentId,
+        examId: attempt.examId,
+        type: req.body.event,
+        level: req.body.level || "warning",
+        message: req.body.message || "Event exam client tercatat.",
+        metadata: {
+          ...(req.body.metadata && typeof req.body.metadata === "object" ? req.body.metadata : {}),
+          attemptId: attempt.id,
+          clientEventId: req.body.clientEventId || ""
+        }
+      });
+      violationToSave = violation;
+    }
+    if (violationToSave) {
+      await persistAttemptAndViolationChanges(store, [attempt], [violationToSave], { invalidateCache: false });
+    } else {
+      await persistHotAttemptChange(store, attempt);
+    }
+    return res.json({ ok: true, updatedAt: attempt.updatedAt, submitted: false, attempt });
+  }
   const store = await readStore();
   const attempt = store.attempts.find((item) => item.id === req.params.id);
   if (!attempt) return res.status(404).json({ message: "Attempt tidak ditemukan." });
@@ -2623,6 +3040,14 @@ app.post("/api/attempts/:id/heartbeat", allowRoles("admin", "siswa"), async (req
   }
   if (attempt.status === "submitted") {
     return res.json({ ok: true, updatedAt: attempt.updatedAt, submitted: true, attempt });
+  }
+  if (attempt.status === "force_finishing") {
+    const violationsBefore = store.violations.length;
+    if (finishForceFinishingIfTimedOut(store, attempt)) {
+      await persistAttemptAndViolationChanges(store, [attempt], store.violations.slice(0, Math.max(0, store.violations.length - violationsBefore)), { invalidateCache: false });
+      return res.json({ ok: true, updatedAt: attempt.updatedAt, submitted: true, attempt });
+    }
+    return res.json({ ok: true, updatedAt: attempt.updatedAt, submitted: false, forceFinishing: true, attempt });
   }
   attempt.updatedAt = new Date().toISOString();
   let violationToSave = null;
