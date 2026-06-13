@@ -48,6 +48,7 @@ class OverlayExamService : Service() {
     private var overlayFocusLostReported = false
     private var normalStop = false
     private var lastNativeHeartbeatAt = 0L
+    private var nativeHeartbeatEnabled = true
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private val watchdogRunnable = object : Runnable {
         override fun run() {
@@ -241,6 +242,9 @@ class OverlayExamService : Service() {
                     response.clone().json().then(function(data) {
                       if (data && data.attempt && data.attempt.id && window.CBTExamClient) {
                         window.CBTExamClient.setActiveAttempt(data.attempt.id);
+                        if (data.examSettings && typeof window.CBTExamClient.setHeartbeatEnabled === "function") {
+                          window.CBTExamClient.setHeartbeatEnabled(data.examSettings.heartbeatEnabled !== false);
+                        }
                       }
                     }).catch(function() {});
                   }
@@ -296,7 +300,7 @@ class OverlayExamService : Service() {
         }
 
         val now = System.currentTimeMillis()
-        if (now - lastNativeHeartbeatAt >= NATIVE_HEARTBEAT_INTERVAL_MS) {
+        if (nativeHeartbeatEnabled && now - lastNativeHeartbeatAt >= NATIVE_HEARTBEAT_INTERVAL_MS) {
             lastNativeHeartbeatAt = now
             sendHeartbeat("heartbeat", "Overlay native heartbeat aktif.", "info")
         }
@@ -650,8 +654,14 @@ class OverlayExamService : Service() {
         }
 
         @JavascriptInterface
+        fun setHeartbeatEnabled(enabled: Boolean) {
+            nativeHeartbeatEnabled = enabled
+        }
+
+        @JavascriptInterface
         fun clearActiveAttempt() {
             activeAttemptId = ""
+            nativeHeartbeatEnabled = true
             normalStop = true
             stopSelf()
         }

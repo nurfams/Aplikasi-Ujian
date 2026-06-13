@@ -103,12 +103,15 @@ const seed = {
     autoSubmitOnEnd: true,
     requireReviewBeforePublish: false,
     requireWeight100BeforePublish: false,
+    showStudentScores: true,
     defaultRandomizeQuestions: true,
     defaultRandomizeOptions: true,
+    answerSyncMode: "extra_high",
+    heartbeatEnabled: false,
     heartbeatIntervalSeconds: 30,
     heartbeatJitterSeconds: 10,
-    autosaveBatchSize: 3,
-    autosaveIntervalSeconds: 20,
+    autosaveBatchSize: 10,
+    autosaveIntervalSeconds: 60,
     monitoringRefreshSeconds: 10,
     progressiveSoftLimitBytes: 1024 * 1024,
     progressiveHardLimitBytes: 2 * 1024 * 1024,
@@ -321,12 +324,15 @@ function normalizeAccessControl(accessControl = {}) {
 
 function normalizeExamSettings(settings = {}) {
   const validIntervals = new Set([15, 30, 45, 60]);
+  const validAnswerSyncModes = new Set(["extra_high", "balanced"]);
+  const answerSyncMode = validAnswerSyncModes.has(settings.answerSyncMode) ? settings.answerSyncMode : "extra_high";
   const interval = Number(settings.tokenIntervalMinutes || 15);
   const submitUnlockMinutes = Math.max(0, Math.min(120, Number(settings.submitUnlockMinutes ?? 30)));
   const heartbeatIntervalSeconds = Math.max(15, Math.min(120, Number(settings.heartbeatIntervalSeconds ?? 30)));
   const heartbeatJitterSeconds = Math.max(0, Math.min(30, Number(settings.heartbeatJitterSeconds ?? 10)));
-  const autosaveBatchSize = Math.max(1, Math.min(10, Number(settings.autosaveBatchSize ?? 3)));
-  const autosaveIntervalSeconds = Math.max(5, Math.min(60, Number(settings.autosaveIntervalSeconds ?? 20)));
+  const heartbeatEnabled = settings.heartbeatEnabled === undefined ? answerSyncMode !== "extra_high" : settings.heartbeatEnabled !== false;
+  const autosaveBatchSize = Math.max(1, Math.min(20, Number(settings.autosaveBatchSize ?? (answerSyncMode === "extra_high" ? 10 : 3))));
+  const autosaveIntervalSeconds = Math.max(5, Math.min(120, Number(settings.autosaveIntervalSeconds ?? (answerSyncMode === "extra_high" ? 60 : 20))));
   const monitoringRefreshSeconds = Math.max(5, Math.min(60, Number(settings.monitoringRefreshSeconds ?? 10)));
   const progressiveSoftLimitBytes = Math.max(128 * 1024, Math.min(5 * 1024 * 1024, Number(settings.progressiveSoftLimitBytes ?? 1024 * 1024)));
   const progressiveHardLimitBytes = Math.max(progressiveSoftLimitBytes, Math.min(10 * 1024 * 1024, Number(settings.progressiveHardLimitBytes ?? 2 * 1024 * 1024)));
@@ -340,8 +346,11 @@ function normalizeExamSettings(settings = {}) {
     autoSubmitOnEnd: settings.autoSubmitOnEnd !== false,
     requireReviewBeforePublish: !!settings.requireReviewBeforePublish,
     requireWeight100BeforePublish: !!settings.requireWeight100BeforePublish,
+    showStudentScores: settings.showStudentScores !== false,
     defaultRandomizeQuestions: settings.defaultRandomizeQuestions !== false,
     defaultRandomizeOptions: settings.defaultRandomizeOptions !== false,
+    answerSyncMode,
+    heartbeatEnabled,
     heartbeatIntervalSeconds,
     heartbeatJitterSeconds,
     autosaveBatchSize,
@@ -1120,6 +1129,7 @@ function safeIsoDate(value, fallback = new Date().toISOString()) {
 function ensureExamClientHeartbeatViolations(store) {
   const now = Date.now();
   const settings = normalizeExamSettings(store.examSettings);
+  if (!settings.heartbeatEnabled) return { changed: false, violations: [] };
   const heartbeatTimeoutMs = Math.max(examClientHeartbeatTimeoutMs, Number(settings.heartbeatIntervalSeconds || 30) * 3 * 1000);
   const heartbeatRepeatMs = Math.max(examClientHeartbeatRepeatMs, Number(settings.heartbeatIntervalSeconds || 30) * 4 * 1000);
   let changed = false;
@@ -1611,8 +1621,11 @@ app.put("/api/exam-settings", allowRoles("admin"), async (req, res) => {
     autoSubmitOnEnd: req.body.autoSubmitOnEnd ?? current.autoSubmitOnEnd,
     requireReviewBeforePublish: req.body.requireReviewBeforePublish ?? current.requireReviewBeforePublish,
     requireWeight100BeforePublish: req.body.requireWeight100BeforePublish ?? current.requireWeight100BeforePublish,
+    showStudentScores: req.body.showStudentScores ?? current.showStudentScores,
     defaultRandomizeQuestions: req.body.defaultRandomizeQuestions ?? current.defaultRandomizeQuestions,
     defaultRandomizeOptions: req.body.defaultRandomizeOptions ?? current.defaultRandomizeOptions,
+    answerSyncMode: req.body.answerSyncMode ?? current.answerSyncMode,
+    heartbeatEnabled: req.body.heartbeatEnabled ?? current.heartbeatEnabled,
     heartbeatIntervalSeconds: req.body.heartbeatIntervalSeconds ?? current.heartbeatIntervalSeconds,
     heartbeatJitterSeconds: req.body.heartbeatJitterSeconds ?? current.heartbeatJitterSeconds,
     autosaveBatchSize: req.body.autosaveBatchSize ?? current.autosaveBatchSize,
@@ -2293,6 +2306,9 @@ app.get("/api/results", allowRoles("admin", "guru", "pengawas"), async (req, res
   await persistAttemptAndViolationChanges(store, expired.attempts, heartbeat.violations);
   res.json(filterAttemptsByUser(store, req.user).map((attempt) => ({
     ...attempt,
+    answers: attempt.answers || {},
+    questionOrder: attempt.questionOrder || [],
+    optionOrders: attempt.optionOrders || {},
     score: attempt.score ?? (attempt.status === "submitted" ? calculateScore(store, attempt) : null)
   })));
 });
@@ -2313,6 +2329,7 @@ app.get("/api/student/:studentId/exams", allowRoles("admin", "siswa"), async (re
     if (req.user.role === "siswa" && availability.scheduleStatus === "draft") return null;
     return {
       ...attempt,
+      score: examSettings.showStudentScores ? attempt.score : null,
       exam,
       questionCount,
       payloadAnalysis: analyzeExamPayload(store, exam),
@@ -2370,7 +2387,12 @@ app.post("/api/attempts/start", allowRoles("admin", "siswa"), async (req, res) =
   }
   const payloadAnalysis = analyzeExamPayload(store, exam);
   const requestedDeliveryMode = String(req.body?.deliveryMode || "").toLowerCase();
-  const deliveryMode = requestedDeliveryMode === "full" ? "full" : payloadAnalysis.recommendedDeliveryMode;
+  const examSettings = normalizeExamSettings(store.examSettings);
+  const deliveryMode = requestedDeliveryMode === "progressive"
+    ? "progressive"
+    : requestedDeliveryMode === "full" || examSettings.answerSyncMode === "extra_high"
+      ? "full"
+      : payloadAnalysis.recommendedDeliveryMode;
   const questions = questionsForAttempt(store, exam, attempt);
   const questionManifest = questionManifestForAttempt(store, exam, attempt);
   await persistAttemptAndViolationChanges(store, [attempt], violationToSave ? [violationToSave] : []);
@@ -2381,7 +2403,7 @@ app.post("/api/attempts/start", allowRoles("admin", "siswa"), async (req, res) =
     questionManifest,
     deliveryMode,
     payloadAnalysis,
-    examSettings: normalizeExamSettings(store.examSettings),
+    examSettings,
     availability
   });
 });
@@ -2405,7 +2427,12 @@ app.get("/api/attempts/:id/reload", allowRoles("admin", "siswa"), async (req, re
 
   const payloadAnalysis = analyzeExamPayload(store, exam);
   const requestedDeliveryMode = String(req.query.deliveryMode || "").toLowerCase();
-  const deliveryMode = requestedDeliveryMode === "progressive" ? "progressive" : payloadAnalysis.recommendedDeliveryMode;
+  const examSettings = normalizeExamSettings(store.examSettings);
+  const deliveryMode = requestedDeliveryMode === "progressive"
+    ? "progressive"
+    : requestedDeliveryMode === "full" || examSettings.answerSyncMode === "extra_high"
+      ? "full"
+      : payloadAnalysis.recommendedDeliveryMode;
   const questions = questionsForAttempt(store, exam, attempt);
   const questionManifest = questionManifestForAttempt(store, exam, attempt);
   let violationToSave = null;
@@ -2428,7 +2455,7 @@ app.get("/api/attempts/:id/reload", allowRoles("admin", "siswa"), async (req, re
     questionManifest,
     deliveryMode,
     payloadAnalysis,
-    examSettings: normalizeExamSettings(store.examSettings),
+    examSettings,
     availability
   });
 });
@@ -2501,6 +2528,9 @@ app.post("/api/attempts/:id/submit", allowRoles("admin", "siswa"), async (req, r
   if (req.user.role === "siswa" && req.user.id !== attempt.studentId) {
     return res.status(403).json({ message: "Peserta hanya bisa submit jawaban miliknya sendiri." });
   }
+  if (attempt.status === "submitted") {
+    return res.status(409).json({ message: "Ujian sudah selesai. Jawaban final tidak bisa ditimpa.", attempt });
+  }
 
   finishAttempt(store, attempt, req.body.answers || {});
   await persistAttemptChange(store, attempt);
@@ -2569,6 +2599,19 @@ app.post("/api/attempts/admin-finish-bulk", allowRoles("admin", "pengawas"), asy
     await writeStore(store);
   }
   res.json({ ok: true, requested: attemptIds.length, finished: attemptsToFinish.length, skipped: attemptIds.length - attemptsToFinish.length });
+});
+
+app.get("/api/attempts/:id/status", allowRoles("admin", "siswa"), async (req, res) => {
+  const store = await readStore();
+  const attempt = store.attempts.find((item) => item.id === req.params.id);
+  if (!attempt) return res.status(404).json({ message: "Attempt tidak ditemukan." });
+  if (req.user.role === "siswa" && req.user.id !== attempt.studentId) {
+    return res.status(403).json({ message: "Peserta hanya bisa mengecek status ujian miliknya sendiri." });
+  }
+  if (finishAttemptIfExpired(store, attempt)) {
+    await persistAttemptChange(store, attempt);
+  }
+  res.json({ ok: true, submitted: attempt.status === "submitted", attempt });
 });
 
 app.post("/api/attempts/:id/heartbeat", allowRoles("admin", "siswa"), async (req, res) => {
