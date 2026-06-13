@@ -28,6 +28,9 @@ import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
+import org.json.JSONArray
+import org.json.JSONObject
+import org.json.JSONTokener
 
 class MainActivity : Activity() {
     private var webView: WebView? = null
@@ -495,7 +498,14 @@ class MainActivity : Activity() {
         val attemptId = activeAttemptId
         val token = authToken
         val apiBaseUrl = cbtApiBaseUrl
-        if (attemptId.isBlank() || token.isBlank() || apiBaseUrl.isBlank()) return
+        if (token.isBlank() || apiBaseUrl.isBlank()) {
+            if (type != "heartbeat") queueClientEvent(type, message, "warning")
+            return
+        }
+        if (attemptId.isBlank()) {
+            if (type != "heartbeat") sendClientEvent(type, message, "warning")
+            return
+        }
 
         executor.execute {
             try {
@@ -512,12 +522,235 @@ class MainActivity : Activity() {
                 }
                 val payload = """{"event":"$type","level":"warning","message":"$message"}"""
                 OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { it.write(payload) }
-                connection.inputStream.close()
+                if (connection.responseCode in 200..299) {
+                    connection.inputStream.close()
+                } else {
+                    connection.errorStream?.close()
+                    if (type != "heartbeat") sendClientEvent(type, message, "warning")
+                }
                 connection.disconnect()
             } catch (_: Exception) {
-                // Security logs should never crash the exam client.
+                if (type != "heartbeat") sendClientEvent(type, message, "warning")
             }
         }
+    }
+
+    private fun sendClientEvent(type: String, message: String, level: String = "warning") {
+        val token = authToken
+        val apiBaseUrl = cbtApiBaseUrl
+        val event = JSONObject()
+            .put("clientEventId", createClientEventId())
+            .put("event", type)
+            .put("level", level)
+            .put("message", message)
+            .put("attemptId", activeAttemptId)
+            .put("clientTime", System.currentTimeMillis())
+        if (token.isBlank() || apiBaseUrl.isBlank()) {
+            queueClientEvent(event)
+            return
+        }
+
+        executor.execute {
+            try {
+                val url = URL("$apiBaseUrl/client-events")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 3000
+                    readTimeout = 3000
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("Authorization", "Bearer $token")
+                    setRequestProperty("x-cbt-exam-client", BuildConfig.EXAM_CLIENT_ID)
+                    setRequestProperty("x-cbt-exam-client-key", BuildConfig.EXAM_CLIENT_KEY)
+                }
+                OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { it.write(event.toString()) }
+                if (connection.responseCode in 200..299) {
+                    connection.inputStream.close()
+                    flushQueuedEvents()
+                } else {
+                    connection.errorStream?.close()
+                    queueClientEvent(event)
+                }
+                connection.disconnect()
+            } catch (_: Exception) {
+                queueClientEvent(event)
+            }
+        }
+    }
+
+    private fun queueClientEvent(type: String, message: String, level: String = "warning") {
+        val event = JSONObject()
+            .put("clientEventId", createClientEventId())
+            .put("event", type)
+            .put("level", level)
+            .put("message", message)
+            .put("attemptId", activeAttemptId)
+            .put("clientTime", System.currentTimeMillis())
+        queueClientEvent(event)
+    }
+
+    private fun queueClientEvent(event: JSONObject) {
+        if (event.optString("event") == "heartbeat") return
+        val prefs = getSharedPreferences(EVENT_QUEUE_PREFS, MODE_PRIVATE)
+        val current = try {
+            JSONArray(prefs.getString(EVENT_QUEUE_KEY, "[]") ?: "[]")
+        } catch (_: Exception) {
+            JSONArray()
+        }
+        current.put(event)
+        val compact = JSONArray()
+        val start = (current.length() - MAX_QUEUED_EVENTS).coerceAtLeast(0)
+        for (index in start until current.length()) {
+            compact.put(current.getJSONObject(index))
+        }
+        prefs.edit().putString(EVENT_QUEUE_KEY, compact.toString()).apply()
+    }
+
+    private fun flushQueuedEvents() {
+        val token = authToken
+        val apiBaseUrl = cbtApiBaseUrl
+        if (token.isBlank() || apiBaseUrl.isBlank()) return
+        val prefs = getSharedPreferences(EVENT_QUEUE_PREFS, MODE_PRIVATE)
+        val queuedRaw = prefs.getString(EVENT_QUEUE_KEY, "[]") ?: "[]"
+        val queued = try {
+            JSONArray(queuedRaw)
+        } catch (_: Exception) {
+            JSONArray()
+        }
+        if (queued.length() == 0) return
+
+        executor.execute {
+            try {
+                val url = URL("$apiBaseUrl/client-events/batch")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 3000
+                    readTimeout = 5000
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("Authorization", "Bearer $token")
+                    setRequestProperty("x-cbt-exam-client", BuildConfig.EXAM_CLIENT_ID)
+                    setRequestProperty("x-cbt-exam-client-key", BuildConfig.EXAM_CLIENT_KEY)
+                }
+                val payload = JSONObject().put("events", queued).toString()
+                OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { it.write(payload) }
+                if (connection.responseCode in 200..299) {
+                    connection.inputStream.close()
+                    prefs.edit().remove(EVENT_QUEUE_KEY).apply()
+                } else {
+                    connection.errorStream?.close()
+                }
+                connection.disconnect()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun createClientEventId(): String {
+        return "android-${System.currentTimeMillis()}-${(1000..9999).random()}"
+    }
+
+    private fun answerQueuePrefs() = getSharedPreferences(ANSWER_QUEUE_PREFS, MODE_PRIVATE)
+
+    private fun answerQueueKey(attemptId: String): String {
+        return "answers_$attemptId"
+    }
+
+    private fun readAnswerQueue(attemptId: String?): JSONObject {
+        val id = attemptId.orEmpty()
+        if (id.isBlank()) return JSONObject()
+        return try {
+            JSONObject(answerQueuePrefs().getString(answerQueueKey(id), "{}") ?: "{}")
+        } catch (_: Exception) {
+            JSONObject()
+        }
+    }
+
+    private fun writeAnswerQueue(attemptId: String?, queue: JSONObject) {
+        val id = attemptId.orEmpty()
+        if (id.isBlank()) return
+        answerQueuePrefs().edit().putString(answerQueueKey(id), queue.toString()).apply()
+    }
+
+    private fun jsonValueFromString(raw: String?): Any {
+        return try {
+            JSONTokener(raw ?: "null").nextValue()
+        } catch (_: Exception) {
+            raw.orEmpty()
+        }
+    }
+
+    private fun jsonStringFromValue(value: Any?): String {
+        return when (value) {
+            null, JSONObject.NULL -> "null"
+            is JSONObject, is JSONArray -> value.toString()
+            is String -> JSONObject.quote(value)
+            else -> value.toString()
+        }
+    }
+
+    private fun putJsonValue(target: JSONObject, key: String, value: Any?) {
+        when (value) {
+            null -> target.put(key, JSONObject.NULL)
+            is Boolean -> target.put(key, value)
+            is Int -> target.put(key, value)
+            is Long -> target.put(key, value)
+            is Double -> target.put(key, value)
+            is JSONObject -> target.put(key, value)
+            is JSONArray -> target.put(key, value)
+            else -> target.put(key, value.toString())
+        }
+    }
+
+    private fun queueAnswerLocally(attemptId: String?, questionId: String?, answerJson: String?, updatedAt: String?) {
+        val id = attemptId.orEmpty()
+        val qid = questionId.orEmpty()
+        if (id.isBlank() || qid.isBlank()) return
+        val queue = readAnswerQueue(id)
+        val item = JSONObject()
+            .put("answerJson", answerJson ?: "null")
+            .put("updatedAt", updatedAt?.toLongOrNull() ?: System.currentTimeMillis())
+        queue.put(qid, item)
+        writeAnswerQueue(id, queue)
+    }
+
+    private fun pendingAnswersForWeb(attemptId: String?): String {
+        val queue = readAnswerQueue(attemptId)
+        val answers = JSONObject()
+        val keys = queue.keys()
+        while (keys.hasNext()) {
+            val questionId = keys.next()
+            val item = queue.optJSONObject(questionId)
+            putJsonValue(answers, questionId, jsonValueFromString(item?.optString("answerJson", "null")))
+        }
+        return answers.toString()
+    }
+
+    private fun replaceAnswerQueue(attemptId: String?, answersJson: String?) {
+        val id = attemptId.orEmpty()
+        if (id.isBlank()) return
+        val answers = try {
+            JSONObject(answersJson ?: "{}")
+        } catch (_: Exception) {
+            JSONObject()
+        }
+        val queue = JSONObject()
+        val keys = answers.keys()
+        val now = System.currentTimeMillis()
+        while (keys.hasNext()) {
+            val questionId = keys.next()
+            val item = JSONObject()
+                .put("answerJson", jsonStringFromValue(answers.opt(questionId)))
+                .put("updatedAt", now)
+            queue.put(questionId, item)
+        }
+        writeAnswerQueue(id, queue)
+    }
+
+    private fun clearAnswerQueue(attemptId: String?) {
+        val id = attemptId.orEmpty()
+        if (id.isBlank()) return
+        answerQueuePrefs().edit().remove(answerQueueKey(id)).apply()
     }
 
     private fun hasOverlayPermission(): Boolean {
@@ -602,20 +835,46 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun setAuthToken(token: String?) {
             authToken = token.orEmpty()
+            flushQueuedEvents()
         }
 
         @JavascriptInterface
         fun setActiveAttempt(attemptId: String?) {
             activeAttemptId = attemptId.orEmpty()
+            flushQueuedEvents()
         }
 
         @JavascriptInterface
         fun clearActiveAttempt() {
             activeAttemptId = ""
         }
+
+        @JavascriptInterface
+        fun savePendingAnswer(attemptId: String?, questionId: String?, answerJson: String?, updatedAt: String?) {
+            queueAnswerLocally(attemptId, questionId, answerJson, updatedAt)
+        }
+
+        @JavascriptInterface
+        fun getPendingAnswers(attemptId: String?): String {
+            return pendingAnswersForWeb(attemptId)
+        }
+
+        @JavascriptInterface
+        fun replacePendingAnswers(attemptId: String?, answersJson: String?) {
+            replaceAnswerQueue(attemptId, answersJson)
+        }
+
+        @JavascriptInterface
+        fun clearPendingAnswers(attemptId: String?) {
+            clearAnswerQueue(attemptId)
+        }
     }
 
     companion object {
         const val EXTRA_OVERLAY_PERMISSION_LOST = "overlayPermissionLost"
+        private const val ANSWER_QUEUE_PREFS = "cbt_exam_browser_answer_queue"
+        private const val EVENT_QUEUE_PREFS = "cbt_exam_browser_event_queue"
+        private const val EVENT_QUEUE_KEY = "events"
+        private const val MAX_QUEUED_EVENTS = 200
     }
 }

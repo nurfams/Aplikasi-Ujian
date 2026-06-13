@@ -187,6 +187,37 @@ function toIso(value) {
   return value;
 }
 
+function mapUser(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    role: row.role,
+    name: row.name,
+    username: row.username,
+    password: row.password,
+    className: row.class_name || undefined,
+    subjects: row.subjects || []
+  };
+}
+
+function mapSession(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    role: row.role,
+    userAgent: row.user_agent || "",
+    ipAddress: row.ip_address || "",
+    accessMethod: row.access_method || "ordinary_browser",
+    examClientVerified: !!row.exam_client_verified,
+    browserTokenId: row.browser_token_id || "",
+    browserAccessGrantedAt: toIso(row.browser_access_granted_at),
+    createdAt: toIso(row.created_at),
+    lastSeenAt: toIso(row.last_seen_at),
+    expiresAt: toIso(row.expires_at)
+  };
+}
+
 let writeQueue = Promise.resolve();
 
 function enqueueWrite(operation) {
@@ -338,6 +369,35 @@ export async function readStoreFromPostgres() {
     accessControl: accessControl.rows[0]?.value || undefined,
     examSettings: examSettings.rows[0]?.value || undefined
   };
+}
+
+export async function getUserByUsernameFromPostgres(username) {
+  const result = await pool.query("SELECT * FROM users WHERE username = $1 LIMIT 1", [username]);
+  return mapUser(result.rows[0]);
+}
+
+export async function getUserByIdFromPostgres(userId) {
+  const result = await pool.query("SELECT * FROM users WHERE id = $1 LIMIT 1", [userId]);
+  return mapUser(result.rows[0]);
+}
+
+export async function getSessionByIdFromPostgres(sessionId) {
+  const result = await pool.query("SELECT * FROM active_sessions WHERE id = $1 LIMIT 1", [sessionId]);
+  return mapSession(result.rows[0]);
+}
+
+export async function getAppSettingFromPostgres(id) {
+  const result = await pool.query("SELECT value FROM app_settings WHERE id = $1 LIMIT 1", [id]);
+  return result.rows[0]?.value;
+}
+
+export async function getAuthContextFromPostgres(userId, sessionId) {
+  const [user, session, accessControl] = await Promise.all([
+    getUserByIdFromPostgres(userId),
+    sessionId ? getSessionByIdFromPostgres(sessionId) : Promise.resolve(null),
+    getAppSettingFromPostgres("access_control")
+  ]);
+  return { user, session, accessControl };
 }
 
 export async function writeStoreToPostgres(store) {

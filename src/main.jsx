@@ -36,6 +36,12 @@ const API = `http://${API_HOST}:4100/api`;
 const SESSION_KEY = "cbt_sman94_session";
 const EXAM_FONT_SIZE_KEY = "cbt_sman94_exam_font_size";
 
+function clampNumber(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.max(min, Math.min(max, number));
+}
+
 function readSession() {
   try {
     return JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
@@ -344,6 +350,12 @@ function formatRemainingTime(totalMs) {
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (value >= 1024 * 1024) return `${Math.round((value / 1024 / 1024) * 100) / 100} MB`;
+  return `${Math.max(1, Math.round(value / 1024))} KB`;
 }
 
 function resultStatusClass(status) {
@@ -1041,7 +1053,16 @@ function ExamSettingsPanel({ examSettings, onChanged }) {
     requireReviewBeforePublish: !!settings.requireReviewBeforePublish,
     requireWeight100BeforePublish: !!settings.requireWeight100BeforePublish,
     defaultRandomizeQuestions: settings.defaultRandomizeQuestions !== false,
-    defaultRandomizeOptions: settings.defaultRandomizeOptions !== false
+    defaultRandomizeOptions: settings.defaultRandomizeOptions !== false,
+    heartbeatIntervalSeconds: settings.heartbeatIntervalSeconds ?? 30,
+    heartbeatJitterSeconds: settings.heartbeatJitterSeconds ?? 10,
+    autosaveBatchSize: settings.autosaveBatchSize ?? 3,
+    autosaveIntervalSeconds: settings.autosaveIntervalSeconds ?? 20,
+    monitoringRefreshSeconds: settings.monitoringRefreshSeconds ?? 10,
+    progressiveSoftLimitBytes: settings.progressiveSoftLimitBytes ?? 1024 * 1024,
+    progressiveHardLimitBytes: settings.progressiveHardLimitBytes ?? 2 * 1024 * 1024,
+    progressiveParticipantLimit: settings.progressiveParticipantLimit ?? 100,
+    questionPrefetchCount: settings.questionPrefetchCount ?? 2
   });
   const [notice, setNotice] = useState("");
 
@@ -1054,7 +1075,16 @@ function ExamSettingsPanel({ examSettings, onChanged }) {
       requireReviewBeforePublish: !!settings.requireReviewBeforePublish,
       requireWeight100BeforePublish: !!settings.requireWeight100BeforePublish,
       defaultRandomizeQuestions: settings.defaultRandomizeQuestions !== false,
-      defaultRandomizeOptions: settings.defaultRandomizeOptions !== false
+      defaultRandomizeOptions: settings.defaultRandomizeOptions !== false,
+      heartbeatIntervalSeconds: settings.heartbeatIntervalSeconds ?? 30,
+      heartbeatJitterSeconds: settings.heartbeatJitterSeconds ?? 10,
+      autosaveBatchSize: settings.autosaveBatchSize ?? 3,
+      autosaveIntervalSeconds: settings.autosaveIntervalSeconds ?? 20,
+      monitoringRefreshSeconds: settings.monitoringRefreshSeconds ?? 10,
+      progressiveSoftLimitBytes: settings.progressiveSoftLimitBytes ?? 1024 * 1024,
+      progressiveHardLimitBytes: settings.progressiveHardLimitBytes ?? 2 * 1024 * 1024,
+      progressiveParticipantLimit: settings.progressiveParticipantLimit ?? 100,
+      questionPrefetchCount: settings.questionPrefetchCount ?? 2
     });
   }, [
     settings.examWithoutToken,
@@ -1064,7 +1094,16 @@ function ExamSettingsPanel({ examSettings, onChanged }) {
     settings.requireReviewBeforePublish,
     settings.requireWeight100BeforePublish,
     settings.defaultRandomizeQuestions,
-    settings.defaultRandomizeOptions
+    settings.defaultRandomizeOptions,
+    settings.heartbeatIntervalSeconds,
+    settings.heartbeatJitterSeconds,
+    settings.autosaveBatchSize,
+    settings.autosaveIntervalSeconds,
+    settings.monitoringRefreshSeconds,
+    settings.progressiveSoftLimitBytes,
+    settings.progressiveHardLimitBytes,
+    settings.progressiveParticipantLimit,
+    settings.questionPrefetchCount
   ]);
 
   async function save(nextForm = form) {
@@ -1163,6 +1202,95 @@ function ExamSettingsPanel({ examSettings, onChanged }) {
           <label className="check-row"><input type="checkbox" checked={form.defaultRandomizeOptions} onChange={(event) => update("defaultRandomizeOptions", event.target.checked)} /> Default acak opsi</label>
         </div>
         <p className="muted">Pengaturan default berlaku untuk ujian baru. Ujian lama tetap memakai pengaturan yang sudah tersimpan di paket ujian masing-masing.</p>
+      </section>
+
+      <section className="panel">
+        <PanelTitle icon={MonitorSmartphone} title="Performa dan Pengiriman Data" />
+        <div className="settings-grid">
+          <label>
+            Heartbeat peserta
+            <select value={form.heartbeatIntervalSeconds} onChange={(event) => update("heartbeatIntervalSeconds", Number(event.target.value))}>
+              <option value={15}>15 detik</option>
+              <option value={20}>20 detik</option>
+              <option value={30}>30 detik</option>
+              <option value={45}>45 detik</option>
+              <option value={60}>60 detik</option>
+            </select>
+          </label>
+          <label>
+            Jeda acak heartbeat
+            <select value={form.heartbeatJitterSeconds} onChange={(event) => update("heartbeatJitterSeconds", Number(event.target.value))}>
+              <option value={0}>Tanpa jitter</option>
+              <option value={5}>0-5 detik</option>
+              <option value={10}>0-10 detik</option>
+              <option value={15}>0-15 detik</option>
+            </select>
+          </label>
+          <label>
+            Autosave setelah
+            <select value={form.autosaveBatchSize} onChange={(event) => update("autosaveBatchSize", Number(event.target.value))}>
+              <option value={1}>1 jawaban berubah</option>
+              <option value={3}>3 jawaban berubah</option>
+              <option value={5}>5 jawaban berubah</option>
+              <option value={10}>10 jawaban berubah</option>
+            </select>
+          </label>
+          <label>
+            Autosave berkala
+            <select value={form.autosaveIntervalSeconds} onChange={(event) => update("autosaveIntervalSeconds", Number(event.target.value))}>
+              <option value={10}>10 detik</option>
+              <option value={15}>15 detik</option>
+              <option value={20}>20 detik</option>
+              <option value={30}>30 detik</option>
+              <option value={60}>60 detik</option>
+            </select>
+          </label>
+          <label>
+            Refresh monitoring
+            <select value={form.monitoringRefreshSeconds} onChange={(event) => update("monitoringRefreshSeconds", Number(event.target.value))}>
+              <option value={5}>5 detik</option>
+              <option value={10}>10 detik</option>
+              <option value={15}>15 detik</option>
+              <option value={30}>30 detik</option>
+              <option value={60}>60 detik</option>
+            </select>
+          </label>
+          <label>
+            Mode bertahap mulai
+            <select value={form.progressiveSoftLimitBytes} onChange={(event) => update("progressiveSoftLimitBytes", Number(event.target.value))}>
+              <option value={512000}>500 KB</option>
+              <option value={1048576}>1 MB</option>
+              <option value={2097152}>2 MB</option>
+            </select>
+          </label>
+          <label>
+            Wajib bertahap
+            <select value={form.progressiveHardLimitBytes} onChange={(event) => update("progressiveHardLimitBytes", Number(event.target.value))}>
+              <option value={1048576}>1 MB</option>
+              <option value={2097152}>2 MB</option>
+              <option value={5242880}>5 MB</option>
+            </select>
+          </label>
+          <label>
+            Peserta mulai bertahap
+            <select value={form.progressiveParticipantLimit} onChange={(event) => update("progressiveParticipantLimit", Number(event.target.value))}>
+              <option value={50}>50 peserta</option>
+              <option value={100}>100 peserta</option>
+              <option value={200}>200 peserta</option>
+              <option value={300}>300 peserta</option>
+            </select>
+          </label>
+          <label>
+            Prefetch soal
+            <select value={form.questionPrefetchCount} onChange={(event) => update("questionPrefetchCount", Number(event.target.value))}>
+              <option value={0}>Tidak prefetch</option>
+              <option value={1}>1 soal berikutnya</option>
+              <option value={2}>2 soal berikutnya</option>
+              <option value={3}>3 soal berikutnya</option>
+            </select>
+          </label>
+        </div>
+        <p className="muted">Default aman: heartbeat 30 detik + jitter, autosave 3 jawaban atau 20 detik, monitoring 10 detik, dan soal besar dikirim bertahap.</p>
       </section>
     </div>
   );
@@ -1318,6 +1446,12 @@ function MonitoringDashboard({ attempts, students, exams, violations, activeTab 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [selectedLogTarget, setSelectedLogTarget] = useState(null);
+  const [selectedAttemptIds, setSelectedAttemptIds] = useState([]);
+  const [bulkFinishOpen, setBulkFinishOpen] = useState(false);
+  const [bulkFinishReason, setBulkFinishReason] = useState("Pelanggaran saat ujian");
+  const [bulkFinishPassword, setBulkFinishPassword] = useState("");
+  const [bulkFinishLoading, setBulkFinishLoading] = useState(false);
+  const [bulkNotice, setBulkNotice] = useState("");
   const now = new Date();
 
   const studentById = useMemo(() => new Map(students.map((student) => [student.id, student])), [students]);
@@ -1385,6 +1519,12 @@ function MonitoringDashboard({ attempts, students, exams, violations, activeTab 
   });
 
   const paged = getPageItems(filteredRows, page, pageSize);
+  const selectableRows = filteredRows.filter((item) => item.status === "in_progress");
+  const selectablePagedRows = paged.items.filter((item) => item.status === "in_progress");
+  const selectedSet = new Set(selectedAttemptIds);
+  const selectedRows = rows.filter((item) => selectedSet.has(item.id));
+  const allPagedSelected = selectablePagedRows.length > 0 && selectablePagedRows.every((item) => selectedSet.has(item.id));
+  const allFilteredSelected = selectableRows.length > 0 && selectableRows.every((item) => selectedSet.has(item.id));
   const baseStats = [
     { icon: Users, label: "Peserta Tampil", value: filteredRows.length },
     { icon: PlayCircle, label: "Sedang Mengerjakan", value: filteredRows.filter((item) => item.status === "in_progress").length },
@@ -1404,6 +1544,42 @@ function MonitoringDashboard({ attempts, students, exams, violations, activeTab 
     setPage(1);
   }
 
+  useEffect(() => {
+    const validIds = new Set(rows.filter((item) => item.status === "in_progress").map((item) => item.id));
+    setSelectedAttemptIds((current) => current.filter((id) => validIds.has(id)));
+  }, [attempts]);
+
+  function toggleAttemptSelection(id, checked) {
+    setSelectedAttemptIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return [...next];
+    });
+  }
+
+  function togglePageSelection(checked) {
+    setSelectedAttemptIds((current) => {
+      const next = new Set(current);
+      for (const item of selectablePagedRows) {
+        if (checked) next.add(item.id);
+        else next.delete(item.id);
+      }
+      return [...next];
+    });
+  }
+
+  function toggleFilteredSelection(checked) {
+    setSelectedAttemptIds((current) => {
+      const next = new Set(current);
+      for (const item of selectableRows) {
+        if (checked) next.add(item.id);
+        else next.delete(item.id);
+      }
+      return [...next];
+    });
+  }
+
   async function forceFinishAttempt(item) {
     if (item.status !== "in_progress") return;
     const reason = window.prompt(`Alasan paksa selesai untuk ${item.studentName}:`, "Pelanggaran saat ujian");
@@ -1415,6 +1591,26 @@ function MonitoringDashboard({ attempts, students, exams, violations, activeTab 
       body: JSON.stringify({ reason })
     });
     await onChanged();
+  }
+
+  async function forceFinishSelectedAttempts() {
+    setBulkFinishLoading(true);
+    try {
+      const result = await api("/attempts/admin-finish-bulk", {
+        method: "POST",
+        body: JSON.stringify({ attemptIds: selectedAttemptIds, reason: bulkFinishReason, password: bulkFinishPassword })
+      });
+      setBulkNotice(`${result.finished} peserta berhasil dipaksa selesai. ${result.skipped ? `${result.skipped} peserta dilewati karena sudah tidak aktif.` : ""}`);
+      setSelectedAttemptIds([]);
+      setBulkFinishOpen(false);
+      setBulkFinishPassword("");
+      setBulkFinishReason("Pelanggaran saat ujian");
+      await onChanged();
+    } catch (error) {
+      setBulkNotice(error.message);
+    } finally {
+      setBulkFinishLoading(false);
+    }
   }
 
   return (
@@ -1473,6 +1669,20 @@ function MonitoringDashboard({ attempts, students, exams, violations, activeTab 
             </span>
           </label>
         </div>
+        {bulkNotice ? <div className="success-box">{bulkNotice}</div> : null}
+        <div className="bulk-action-bar monitoring-bulk-action-bar">
+          <label className="inline-check">
+            <input type="checkbox" checked={allPagedSelected} disabled={!selectablePagedRows.length} onChange={(event) => togglePageSelection(event.target.checked)} />
+            Pilih halaman ini ({selectablePagedRows.length})
+          </label>
+          <button type="button" className="ghost-button" onClick={() => toggleFilteredSelection(!allFilteredSelected)} disabled={!selectableRows.length}>
+            {allFilteredSelected ? "Batalkan Semua Filter" : `Pilih Semua Sesuai Filter (${selectableRows.length})`}
+          </button>
+          <button type="button" className="danger-button" onClick={() => setBulkFinishOpen(true)} disabled={!selectedAttemptIds.length}>
+            <AlertTriangle size={18} /> Force Selesai Terpilih ({selectedAttemptIds.length})
+          </button>
+          {selectedAttemptIds.length ? <button type="button" className="ghost-button" onClick={() => setSelectedAttemptIds([])}>Kosongkan Pilihan</button> : null}
+        </div>
         <PaginationControls
           page={paged.currentPage}
           pageSize={pageSize}
@@ -1486,6 +1696,7 @@ function MonitoringDashboard({ attempts, students, exams, violations, activeTab 
           <table className="monitoring-active-table">
             <thead>
               <tr>
+                <th>Pilih</th>
                 <th>Peserta</th>
                 <th>Kelas</th>
                 <th>Ujian / Jadwal</th>
@@ -1498,6 +1709,16 @@ function MonitoringDashboard({ attempts, students, exams, violations, activeTab 
             <tbody>
               {paged.items.map((item) => (
                 <tr key={item.id}>
+                  <td>
+                    <input
+                      className="monitoring-row-checkbox"
+                      type="checkbox"
+                      checked={selectedSet.has(item.id)}
+                      disabled={item.status !== "in_progress"}
+                      onChange={(event) => toggleAttemptSelection(item.id, event.target.checked)}
+                      aria-label={`Pilih ${item.studentName}`}
+                    />
+                  </td>
                   <td><strong>{item.studentName}</strong><br /><code>{item.nis || item.studentId}</code></td>
                   <td>{item.className}</td>
                   <td><strong>{item.examCode}</strong><br /><span>{item.subject}</span><br /><small>{item.examDate} | {item.examTime}</small></td>
@@ -1525,7 +1746,7 @@ function MonitoringDashboard({ attempts, students, exams, violations, activeTab 
                   </td>
                 </tr>
               ))}
-              {paged.items.length ? null : <tr><td colSpan="7">Belum ada peserta sesuai filter.</td></tr>}
+              {paged.items.length ? null : <tr><td colSpan="8">Belum ada peserta sesuai filter.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -1546,6 +1767,23 @@ function MonitoringDashboard({ attempts, students, exams, violations, activeTab 
           target={selectedLogTarget}
           logs={selectedLogTarget.violationLogs}
           onClose={() => setSelectedLogTarget(null)}
+        />
+      ) : null}
+      {bulkFinishOpen ? (
+        <PasswordConfirmModal
+          title="Force Selesai Peserta Terpilih"
+          icon={AlertTriangle}
+          description={`Tindakan ini akan menyelesaikan paksa ${selectedRows.length} peserta yang sedang ujian. Jawaban terakhir akan menjadi final dan log pelanggaran berat akan dibuat.`}
+          actionLabel="Force Selesai"
+          reason={bulkFinishReason}
+          setReason={setBulkFinishReason}
+          password={bulkFinishPassword}
+          setPassword={setBulkFinishPassword}
+          confirmation=""
+          setConfirmation={() => {}}
+          loading={bulkFinishLoading}
+          onCancel={() => { setBulkFinishOpen(false); setBulkFinishPassword(""); }}
+          onConfirm={forceFinishSelectedAttempts}
         />
       ) : null}
     </div>
@@ -1973,6 +2211,10 @@ function TeacherManager({ teachers, exams = [], onChanged }) {
   const [subjectToAdd, setSubjectToAdd] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false);
+  const [deleteAllPassword, setDeleteAllPassword] = useState("");
+  const [deleteAllConfirmation, setDeleteAllConfirmation] = useState("");
+  const [deleteAllLoading, setDeleteAllLoading] = useState(false);
 
   const subjectOptions = useMemo(() => {
     return [...new Set(exams.map((exam) => String(exam.subject || "").trim()).filter(Boolean))]
@@ -2057,6 +2299,26 @@ function TeacherManager({ teachers, exams = [], onChanged }) {
     onChanged();
   }
 
+  async function deleteAllTeachers() {
+    setDeleteAllLoading(true);
+    try {
+      const result = await api("/teachers/delete-all", {
+        method: "POST",
+        body: JSON.stringify({ password: deleteAllPassword, confirmation: deleteAllConfirmation })
+      });
+      setNotice(`${result.deletedTeachers} guru berhasil dihapus massal.`);
+      setDeleteAllOpen(false);
+      setDeleteAllPassword("");
+      setDeleteAllConfirmation("");
+      setPage(1);
+      onChanged();
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setDeleteAllLoading(false);
+    }
+  }
+
   async function importFile(event) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -2077,6 +2339,7 @@ function TeacherManager({ teachers, exams = [], onChanged }) {
           <div className="toolbar-actions">
             <button type="button" onClick={() => setBulkOpen(true)}><Upload size={18} /> Upload Bulk</button>
             <button type="button" onClick={() => { reset(); setModalOpen(true); }}><Plus size={18} /> Tambah Guru</button>
+            <button type="button" className="danger-button" onClick={() => setDeleteAllOpen(true)} disabled={!teachers.length}><Trash2 size={18} /> Hapus Semua Guru</button>
           </div>
         </div>
         <PanelTitle icon={UserRound} title="Data Guru" />
@@ -2178,6 +2441,23 @@ function TeacherManager({ teachers, exams = [], onChanged }) {
           </div>
         </Modal>
       ) : null}
+
+      {deleteAllOpen ? (
+        <PasswordConfirmModal
+          title="Hapus Semua Guru"
+          icon={Trash2}
+          description={`Tindakan ini akan menghapus ${teachers.length} guru, akun guru, sesi login guru, dan mengosongkan penugasan guru pada ujian. Data tidak dapat dikembalikan karena arsip belum dibuat.`}
+          confirmText="HAPUS GURU"
+          actionLabel="Hapus Semua Guru"
+          password={deleteAllPassword}
+          setPassword={setDeleteAllPassword}
+          confirmation={deleteAllConfirmation}
+          setConfirmation={setDeleteAllConfirmation}
+          loading={deleteAllLoading}
+          onCancel={() => { setDeleteAllOpen(false); setDeleteAllPassword(""); setDeleteAllConfirmation(""); }}
+          onConfirm={deleteAllTeachers}
+        />
+      ) : null}
     </div>
   );
 }
@@ -2191,6 +2471,9 @@ function StudentManager({ students, onChanged }) {
   const [modal, setModal] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const [deleteAllPassword, setDeleteAllPassword] = useState("");
+  const [deleteAllConfirmation, setDeleteAllConfirmation] = useState("");
+  const [deleteAllLoading, setDeleteAllLoading] = useState(false);
 
   const filtered = students.filter((student) => {
     const haystack = `${student.nis} ${student.name} ${student.username} ${student.className} ${formatReligion(student)} ${formatElectiveSubjects(student).join(" ")}`.toLowerCase();
@@ -2286,6 +2569,26 @@ function StudentManager({ students, onChanged }) {
     onChanged();
   }
 
+  async function deleteAllStudents() {
+    setDeleteAllLoading(true);
+    try {
+      const result = await api("/students/delete-all", {
+        method: "POST",
+        body: JSON.stringify({ password: deleteAllPassword, confirmation: deleteAllConfirmation })
+      });
+      setNotice(`${result.deletedStudents} siswa, ${result.deletedAttempts} attempt/hasil, dan ${result.deletedViolations} log pelanggaran berhasil dihapus.`);
+      setModal("");
+      setDeleteAllPassword("");
+      setDeleteAllConfirmation("");
+      setPage(1);
+      onChanged();
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setDeleteAllLoading(false);
+    }
+  }
+
   return (
     <div className="page-stack">
       <section className="panel">
@@ -2294,6 +2597,7 @@ function StudentManager({ students, onChanged }) {
             <button type="button" onClick={() => setModal("bulk")}><Upload size={18} /> Upload Bulk</button>
             <button type="button" onClick={() => { reset(); setModal("form"); }}><Plus size={18} /> Tambah Siswa</button>
             <button type="button" className="ghost-button" onClick={generateFilteredPasswords}><KeyRound size={18} /> Generate Password Filter</button>
+            <button type="button" className="danger-button" onClick={() => setModal("deleteAll")} disabled={!students.length}><Trash2 size={18} /> Hapus Semua Siswa</button>
           </div>
           <label className="search-box">
             <Search size={16} />
@@ -2414,6 +2718,23 @@ function StudentManager({ students, onChanged }) {
             </label>
           </div>
         </Modal>
+      ) : null}
+
+      {modal === "deleteAll" ? (
+        <PasswordConfirmModal
+          title="Hapus Semua Siswa"
+          icon={Trash2}
+          description={`Tindakan ini akan menghapus ${students.length} siswa, akun siswa, sesi login, attempt/hasil ujian, dan log pelanggaran terkait siswa. Data tidak dapat dikembalikan karena arsip belum dibuat.`}
+          confirmText="HAPUS SISWA"
+          actionLabel="Hapus Semua Siswa"
+          password={deleteAllPassword}
+          setPassword={setDeleteAllPassword}
+          confirmation={deleteAllConfirmation}
+          setConfirmation={setDeleteAllConfirmation}
+          loading={deleteAllLoading}
+          onCancel={() => { setModal(""); setDeleteAllPassword(""); setDeleteAllConfirmation(""); }}
+          onConfirm={deleteAllStudents}
+        />
       ) : null}
     </div>
   );
@@ -2783,6 +3104,19 @@ function ExamManager({ exams, questions = [], teachers = [], onChanged, onExit }
     );
   }
 
+  function renderPayloadInfo(exam) {
+    const analysis = exam.payloadAnalysis;
+    if (!analysis) return <span className="muted">-</span>;
+    return (
+      <div className="exam-payload-cell" title={analysis.message}>
+        <span className={`payload-status-pill ${analysis.level || "small"}`}>
+          {analysis.label || formatBytes(analysis.bytes)}
+        </span>
+        <small>{analysis.recommendedDeliveryMode === "progressive" ? "Bertahap" : "Penuh"}</small>
+      </div>
+    );
+  }
+
   async function setReviewStatus(exam, reviewStatus) {
     await api(`/exams/${exam.id}`, { method: "PUT", body: JSON.stringify({ ...exam, reviewStatus }) });
     setNotice(reviewStatus === "reviewed" ? "Soal ujian ditandai sudah dicek admin." : "Soal ujian ditandai perlu revisi.");
@@ -2856,6 +3190,7 @@ function ExamManager({ exams, questions = [], teachers = [], onChanged, onExit }
                 </th>
                 <th>Waktu</th>
                 <th>Bobot Soal</th>
+                <th>Ukuran</th>
                 <th>Review Soal</th>
                 <th>Status</th>
                 <th>Aksi</th>
@@ -2875,6 +3210,7 @@ function ExamManager({ exams, questions = [], teachers = [], onChanged, onExit }
                   <td>{exam.date}</td>
                   <td>{formatExamTimeRange(exam)}</td>
                   <td>{renderQuestionWeight(exam)}</td>
+                  <td>{renderPayloadInfo(exam)}</td>
                   <td><ReviewStatusIcon status={exam.reviewStatus} /></td>
                   <td><span className={examStatusClass(exam.status)}>{formatExamStatus(exam.status)}</span></td>
                   <td>
@@ -2890,7 +3226,7 @@ function ExamManager({ exams, questions = [], teachers = [], onChanged, onExit }
                 </tr>
               ))}
               {visibleExams.length ? null : (
-                <tr><td colSpan="9">Belum ada ujian sesuai filter.</td></tr>
+                <tr><td colSpan="10">Belum ada ujian sesuai filter.</td></tr>
               )}
             </tbody>
           </table>
@@ -4520,10 +4856,34 @@ function isQuestionAnswered(question, answer) {
   return String(answer ?? "").trim().length > 0;
 }
 
+function hasAnyAnswerValue(answer) {
+  if (Array.isArray(answer)) return answer.length > 0;
+  if (answer && typeof answer === "object") return Object.values(answer).some((value) => String(value ?? "").trim());
+  return String(answer ?? "").trim().length > 0;
+}
+
+function buildQuestionSlots(questions = [], manifest = []) {
+  if (!manifest.length) return questions;
+  const slots = Array.from({ length: manifest.length }, () => null);
+  const indexById = new Map(manifest.map((item, index) => [item.id, index]));
+  for (const question of questions || []) {
+    const index = indexById.get(question.id);
+    if (index !== undefined) slots[index] = question;
+  }
+  return slots;
+}
+
 function ExamTaking({ session, onFinished }) {
-  const [currentQuestions, setCurrentQuestions] = useState(session.questions || []);
+  const initialManifest = session.questionManifest?.length
+    ? session.questionManifest
+    : (session.questions || []).map((question, index) => ({ id: question.id, index, type: question.type }));
+  const [questionManifest, setQuestionManifest] = useState(initialManifest);
+  const [currentQuestions, setCurrentQuestions] = useState(() => buildQuestionSlots(session.questions || [], initialManifest));
+  const [deliveryMode, setDeliveryMode] = useState(session.deliveryMode || "full");
   const [answers, setAnswers] = useState(session.attempt.answers || {});
+  const answersRef = useRef(session.attempt.answers || {});
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [loadingQuestion, setLoadingQuestion] = useState(false);
   const [numberModalOpen, setNumberModalOpen] = useState(false);
   const [fontModalOpen, setFontModalOpen] = useState(false);
   const [questionFontSize, setQuestionFontSize] = useState(() => {
@@ -4539,6 +4899,13 @@ function ExamTaking({ session, onFinished }) {
   const [submittedAttempt, setSubmittedAttempt] = useState(null);
   const questionCardRef = useRef(null);
   const eventLogRef = useRef({});
+  const loadingQuestionIndexesRef = useRef(new Set());
+  const pendingAnswersRef = useRef({});
+  const pendingAnswerCountRef = useRef(0);
+  const autosaveTimerRef = useRef(null);
+  const autosaveInFlightRef = useRef(false);
+  const heartbeatTimerRef = useRef(null);
+  const [pendingSaveCount, setPendingSaveCount] = useState(0);
   const [remainingMs, setRemainingMs] = useState(() => {
     if (Number.isFinite(session.availability?.remainingMs)) return session.availability.remainingMs;
     if (session.availability?.endAt && session.availability?.serverTime) {
@@ -4546,6 +4913,106 @@ function ExamTaking({ session, onFinished }) {
     }
     return Number(session.exam.durationMinutes || 90) * 60 * 1000;
   });
+  const runtimeSettings = session.examSettings || {};
+  const heartbeatIntervalSeconds = clampNumber(runtimeSettings.heartbeatIntervalSeconds, 15, 120, 30);
+  const heartbeatJitterSeconds = clampNumber(runtimeSettings.heartbeatJitterSeconds, 0, 30, 10);
+  const autosaveBatchSize = clampNumber(runtimeSettings.autosaveBatchSize, 1, 10, 3);
+  const autosaveIntervalSeconds = clampNumber(runtimeSettings.autosaveIntervalSeconds, 5, 60, 20);
+  const questionPrefetchCount = clampNumber(runtimeSettings.questionPrefetchCount, 0, 5, 2);
+
+  function nativeExamClient() {
+    if (typeof window === "undefined") return null;
+    return window.CBTExamClient || null;
+  }
+
+  function readNativePendingAnswers() {
+    const client = nativeExamClient();
+    if (!client || typeof client.getPendingAnswers !== "function") return {};
+    try {
+      const raw = client.getPendingAnswers(session.attempt.id);
+      const parsed = JSON.parse(raw || "{}");
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function persistNativePendingAnswers() {
+    const client = nativeExamClient();
+    if (!client || typeof client.replacePendingAnswers !== "function") return;
+    try {
+      client.replacePendingAnswers(session.attempt.id, JSON.stringify(pendingAnswersRef.current));
+    } catch {
+      // Native storage is an extra safety layer; browser autosave continues without it.
+    }
+  }
+
+  function saveNativePendingAnswer(questionId, value) {
+    const client = nativeExamClient();
+    if (!client || typeof client.savePendingAnswer !== "function") return;
+    try {
+      client.savePendingAnswer(session.attempt.id, questionId, JSON.stringify(value ?? null), String(Date.now()));
+    } catch {
+      // Ignore native storage failures so answering remains smooth.
+    }
+  }
+
+  function clearNativePendingAnswers() {
+    const client = nativeExamClient();
+    if (!client || typeof client.clearPendingAnswers !== "function") return;
+    try {
+      client.clearPendingAnswers(session.attempt.id);
+    } catch {
+      // Ignore native storage cleanup failure.
+    }
+  }
+
+  function updateAnswers(nextAnswersOrUpdater) {
+    setAnswers((current) => {
+      const base = { ...answersRef.current, ...current };
+      const next = typeof nextAnswersOrUpdater === "function" ? nextAnswersOrUpdater(base) : nextAnswersOrUpdater;
+      answersRef.current = next || {};
+      return answersRef.current;
+    });
+  }
+
+  function mergeServerAnswers(serverAnswers = {}) {
+    updateAnswers((current) => ({
+      ...(serverAnswers || {}),
+      ...current,
+      ...pendingAnswersRef.current
+    }));
+  }
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(pendingStorageKey()) || "{}");
+      const nativeSaved = readNativePendingAnswers();
+      const merged = {
+        ...(saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {}),
+        ...nativeSaved
+      };
+      if (merged && typeof merged === "object" && !Array.isArray(merged)) {
+        const savedCount = Object.keys(merged).length;
+        if (savedCount) {
+          pendingAnswersRef.current = merged;
+          pendingAnswerCountRef.current = savedCount;
+          setPendingSaveCount(savedCount);
+          updateAnswers((current) => ({ ...current, ...merged }));
+          persistPendingAnswers();
+          persistNativePendingAnswers();
+          scheduleAutosave();
+        }
+      }
+    } catch {
+      // Pending answers are a safety net only; corrupt local data should not block the exam.
+    }
+
+    return () => {
+      if (autosaveTimerRef.current) window.clearTimeout(autosaveTimerRef.current);
+      if (heartbeatTimerRef.current) window.clearTimeout(heartbeatTimerRef.current);
+    };
+  }, [session.attempt.id]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -4634,7 +5101,11 @@ function ExamTaking({ session, onFinished }) {
 
   useEffect(() => {
     resetExamScroll();
-  }, [currentIndex]);
+    loadQuestionAt(currentIndex);
+    for (let offset = 1; offset <= questionPrefetchCount; offset += 1) {
+      loadQuestionAt(currentIndex + offset, { silent: true });
+    }
+  }, [currentIndex, questionPrefetchCount]);
 
   useEffect(() => {
     try {
@@ -4677,12 +5148,18 @@ function ExamTaking({ session, onFinished }) {
     }
   ];
   const currentQuestion = currentQuestions[currentIndex];
-  const answeredCount = currentQuestions.filter((question) => isQuestionAnswered(question, answers[question.id])).length;
+  const questionCount = questionManifest.length || currentQuestions.length;
+  const answeredCount = questionManifest.length
+    ? questionManifest.filter((item, index) => {
+      const question = currentQuestions[index];
+      return question ? isQuestionAnswered(question, answers[item.id]) : hasAnyAnswerValue(answers[item.id]);
+    }).length
+    : currentQuestions.filter((question) => question && isQuestionAnswered(question, answers[question.id])).length;
   const submitUnlockMinutes = Number(session.exam.submitUnlockMinutes ?? 30);
   const submitUnlockMs = Math.max(0, submitUnlockMinutes) * 60 * 1000;
   const canSubmitNow = remainingMs <= submitUnlockMs || remainingMs <= 0;
   const submitLockedText = `Submit tersedia ${submitUnlockMinutes} menit terakhir`;
-  const unansweredCount = Math.max(0, currentQuestions.length - answeredCount);
+  const unansweredCount = Math.max(0, questionCount - answeredCount);
 
   function handleSubmittedAttempt(attempt) {
     if (attempt?.status !== "submitted") return false;
@@ -4692,37 +5169,115 @@ function ExamTaking({ session, onFinished }) {
     return true;
   }
 
-  async function choose(questionId, value) {
-    if (submittedAttempt) return;
-    const next = { ...answers, [questionId]: value };
-    setAnswers(next);
+  function pendingStorageKey() {
+    return `cbt_sman94_pending_answers_${session.attempt.id}`;
+  }
+
+  function persistPendingAnswers() {
+    try {
+      localStorage.setItem(pendingStorageKey(), JSON.stringify(pendingAnswersRef.current));
+    } catch {
+      // Local queue is a safety net; autosave still continues if storage is blocked.
+    }
+    persistNativePendingAnswers();
+  }
+
+  function clearPendingAnswers() {
+    pendingAnswersRef.current = {};
+    pendingAnswerCountRef.current = 0;
+    setPendingSaveCount(0);
+    try {
+      localStorage.removeItem(pendingStorageKey());
+    } catch {
+      // Ignore storage cleanup failure.
+    }
+    clearNativePendingAnswers();
+  }
+
+  async function flushAnswers({ force = false } = {}) {
+    if (submittedAttempt || autosaveInFlightRef.current) return false;
+    const answersPatch = { ...pendingAnswersRef.current };
+    const patchCount = Object.keys(answersPatch).length;
+    if (!patchCount && !force) return true;
+    if (!patchCount) return true;
+    autosaveInFlightRef.current = true;
     setSaving(true);
     try {
-      const result = await api(`/attempts/${session.attempt.id}/answers`, { method: "PUT", body: JSON.stringify({ answers: next }) });
+      const result = await api(`/attempts/${session.attempt.id}/answers`, { method: "PUT", body: JSON.stringify({ answersPatch }) });
+      for (const [questionId, value] of Object.entries(answersPatch)) {
+        if (JSON.stringify(pendingAnswersRef.current[questionId]) === JSON.stringify(value)) {
+          delete pendingAnswersRef.current[questionId];
+        }
+      }
+      pendingAnswerCountRef.current = Object.keys(pendingAnswersRef.current).length;
+      setPendingSaveCount(pendingAnswerCountRef.current);
+      persistPendingAnswers();
+      if (result?.answers) mergeServerAnswers(result.answers);
       handleSubmittedAttempt(result);
+      if (!pendingAnswerCountRef.current) setReloadNotice("");
+      return true;
     } catch (error) {
       if (!handleSubmittedAttempt(error.data?.attempt)) setReloadNotice(error.message);
+      persistPendingAnswers();
+      return false;
     } finally {
+      autosaveInFlightRef.current = false;
       setSaving(false);
     }
   }
 
+  function scheduleAutosave() {
+    if (autosaveTimerRef.current) window.clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = window.setTimeout(() => {
+      autosaveTimerRef.current = null;
+      flushAnswers();
+    }, autosaveIntervalSeconds * 1000);
+  }
+
+  function queueAnswer(questionId, value) {
+    pendingAnswersRef.current = { ...pendingAnswersRef.current, [questionId]: value };
+    pendingAnswerCountRef.current = Object.keys(pendingAnswersRef.current).length;
+    setPendingSaveCount(pendingAnswerCountRef.current);
+    saveNativePendingAnswer(questionId, value);
+    persistPendingAnswers();
+    if (pendingAnswerCountRef.current >= autosaveBatchSize) {
+      if (autosaveTimerRef.current) {
+        window.clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
+      flushAnswers();
+    } else {
+      scheduleAutosave();
+    }
+  }
+
+  function choose(questionId, value) {
+    if (submittedAttempt) return;
+    updateAnswers((current) => ({ ...current, [questionId]: value }));
+    queueAnswer(questionId, value);
+  }
+
   function toggleMulti(questionId, key, checked) {
-    const current = new Set(Array.isArray(answers[questionId]) ? answers[questionId] : []);
+    const currentAnswers = answersRef.current || answers;
+    const current = new Set(Array.isArray(currentAnswers[questionId]) ? currentAnswers[questionId] : []);
     if (checked) current.add(key);
     else current.delete(key);
     choose(questionId, [...current]);
   }
 
   function chooseNested(questionId, itemId, value) {
-    choose(questionId, { ...(answers[questionId] || {}), [itemId]: value });
+    const currentAnswers = answersRef.current || answers;
+    choose(questionId, { ...(currentAnswers[questionId] || {}), [itemId]: value });
   }
 
   async function submit() {
     if (submittedAttempt) return;
     setSaving(true);
+    const finalAnswers = { ...answersRef.current, ...answers, ...pendingAnswersRef.current };
     try {
-      const result = await api(`/attempts/${session.attempt.id}/submit`, { method: "POST", body: JSON.stringify({ answers }) });
+      await flushAnswers({ force: true });
+      const result = await api(`/attempts/${session.attempt.id}/submit`, { method: "POST", body: JSON.stringify({ answers: finalAnswers }) });
+      clearPendingAnswers();
       setSubmittedAttempt(result);
     } catch (error) {
       if (!handleSubmittedAttempt(error.data?.attempt)) setReloadNotice(error.message);
@@ -4731,15 +5286,50 @@ function ExamTaking({ session, onFinished }) {
     }
   }
 
+  async function loadQuestionAt(index, { force = false, silent = false } = {}) {
+    if (deliveryMode !== "progressive") return;
+    if (!questionManifest[index]) return;
+    if (!force && currentQuestions[index]) return;
+    if (loadingQuestionIndexesRef.current.has(index)) return;
+    loadingQuestionIndexesRef.current.add(index);
+    if (!silent) setLoadingQuestion(true);
+    try {
+      const result = await api(`/attempts/${session.attempt.id}/question/${index}`);
+      setCurrentQuestions((current) => {
+        const next = [...current];
+        next[index] = result.question;
+        return next;
+      });
+      if (result.questionManifest?.length) setQuestionManifest(result.questionManifest);
+      if (result.attempt?.answers) mergeServerAnswers(result.attempt.answers);
+      if (result.availability?.remainingMs !== undefined) setRemainingMs(result.availability.remainingMs);
+    } catch (error) {
+      if (!handleSubmittedAttempt(error.data?.attempt) && !silent) setReloadNotice(error.message);
+    } finally {
+      loadingQuestionIndexesRef.current.delete(index);
+      if (!silent) setLoadingQuestion(false);
+    }
+  }
+
   async function reloadQuestions() {
     setSaving(true);
     setReloadNotice("");
     try {
+      if (deliveryMode === "progressive") {
+        await loadQuestionAt(currentIndex, { force: true });
+        setReloadNotice("Soal aktif berhasil dimuat ulang tanpa keluar ujian.");
+        return;
+      }
       const result = await api(`/attempts/${session.attempt.id}/reload`);
-      setCurrentQuestions(result.questions || []);
-      setAnswers(result.attempt?.answers || answers);
+      const nextManifest = result.questionManifest?.length
+        ? result.questionManifest
+        : (result.questions || []).map((question, index) => ({ id: question.id, index, type: question.type }));
+      setQuestionManifest(nextManifest);
+      setDeliveryMode(result.deliveryMode || "full");
+      setCurrentQuestions(buildQuestionSlots(result.questions || [], nextManifest));
+      mergeServerAnswers(result.attempt?.answers || {});
       if (result.availability?.remainingMs !== undefined) setRemainingMs(result.availability.remainingMs);
-      setCurrentIndex((index) => Math.min(index, Math.max(0, (result.questions || []).length - 1)));
+      setCurrentIndex((index) => Math.min(index, Math.max(0, nextManifest.length - 1)));
       setReloadNotice("Soal berhasil dimuat ulang tanpa keluar ujian.");
     } catch (error) {
       if (!handleSubmittedAttempt(error.data?.attempt)) setReloadNotice(error.message);
@@ -4764,17 +5354,28 @@ function ExamTaking({ session, onFinished }) {
 
   useEffect(() => {
     if (submittedAttempt) return undefined;
-    const timer = window.setInterval(() => {
-      checkAttemptStatus();
-    }, 5000);
-    return () => window.clearInterval(timer);
-  }, [submittedAttempt, session.attempt.id]);
+    const schedule = () => {
+      const jitterMs = heartbeatJitterSeconds > 0 ? Math.floor(Math.random() * heartbeatJitterSeconds * 1000) : 0;
+      heartbeatTimerRef.current = window.setTimeout(async () => {
+        await checkAttemptStatus();
+        if (!submittedAttempt) schedule();
+      }, heartbeatIntervalSeconds * 1000 + jitterMs);
+    };
+    schedule();
+    return () => {
+      if (heartbeatTimerRef.current) window.clearTimeout(heartbeatTimerRef.current);
+    };
+  }, [submittedAttempt, session.attempt.id, heartbeatIntervalSeconds, heartbeatJitterSeconds]);
 
   function QuestionNumberGrid({ closeOnPick = false }) {
+    const items = questionManifest.length
+      ? questionManifest
+      : currentQuestions.map((question, index) => ({ id: question.id, index, type: question.type }));
     return (
       <div className="question-number-grid">
-        {currentQuestions.map((question, index) => {
-          const answered = isQuestionAnswered(question, answers[question.id]);
+        {items.map((item, index) => {
+          const question = currentQuestions[index];
+          const answered = question ? isQuestionAnswered(question, answers[item.id]) : hasAnyAnswerValue(answers[item.id]);
           return (
             <button
               type="button"
@@ -4783,7 +5384,7 @@ function ExamTaking({ session, onFinished }) {
                 setCurrentIndex(index);
                 if (closeOnPick) setNumberModalOpen(false);
               }}
-              key={question.id}
+              key={item.id}
               aria-label={`Soal ${index + 1}${answered ? " sudah dijawab" : " belum dijawab"}`}
             >
               {index + 1}
@@ -4810,14 +5411,21 @@ function ExamTaking({ session, onFinished }) {
       <section className="panel exam-header">
         <div>
           <PanelTitle icon={ListChecks} title={session.exam.subject} />
-          <p>{answeredCount}/{currentQuestions.length} terjawab | Waktu: <code>{formatRemainingTime(remainingMs)}</code></p>
+          <p>{answeredCount}/{questionCount} terjawab | Waktu: <code>{formatRemainingTime(remainingMs)}</code></p>
+          {session.payloadAnalysis ? (
+            <span className={`payload-mode-note ${session.payloadAnalysis.level || "small"}`}>
+              Paket {session.payloadAnalysis.label || formatBytes(session.payloadAnalysis.bytes)} | {deliveryMode === "progressive" ? "Mode bertahap" : "Mode penuh"}
+            </span>
+          ) : null}
         </div>
         <div className="exam-icon-actions">
           <button type="button" className="ghost-button icon-button" title="Muat ulang soal" aria-label="Muat ulang soal" onClick={reloadQuestions} disabled={saving}><RefreshCw size={18} /></button>
           <button type="button" className="ghost-button icon-button" title="Ukuran soal" aria-label="Ukuran soal" onClick={() => setFontModalOpen(true)}><ALargeSmall size={18} /></button>
           <button type="button" className="ghost-button icon-button mobile-number-button" title="Nomor soal" aria-label="Nomor soal" onClick={() => setNumberModalOpen(true)}><ListChecks size={18} /></button>
         </div>
-        <span className="autosave-status">{saving ? "Menyimpan..." : "Autosave aktif"}</span>
+        <span className="autosave-status">
+          {saving ? "Menyimpan..." : pendingSaveCount ? `${pendingSaveCount} jawaban menunggu autosave` : "Autosave aktif"}
+        </span>
         {reloadNotice ? <span className="reload-status">{reloadNotice}</span> : null}
       </section>
       <section className="exam-taking-grid">
@@ -4902,7 +5510,7 @@ function ExamTaking({ session, onFinished }) {
                 className="short-answer-input"
                 value={answers[currentQuestion.id] || ""}
                 placeholder="Tulis jawaban singkat..."
-                onChange={(event) => setAnswers({ ...answers, [currentQuestion.id]: event.target.value })}
+                onChange={(event) => choose(currentQuestion.id, event.target.value)}
                 onBlur={(event) => choose(currentQuestion.id, event.target.value)}
               />
             ) : null}
@@ -4911,26 +5519,26 @@ function ExamTaking({ session, onFinished }) {
                 className="essay-answer-input"
                 value={answers[currentQuestion.id] || ""}
                 placeholder="Tulis jawaban uraian..."
-                onChange={(event) => setAnswers({ ...answers, [currentQuestion.id]: event.target.value })}
+                onChange={(event) => choose(currentQuestion.id, event.target.value)}
                 onBlur={(event) => choose(currentQuestion.id, event.target.value)}
               />
             ) : null}
             <div className="question-step-actions">
               <button type="button" className="ghost-button" onClick={() => setCurrentIndex((index) => Math.max(0, index - 1))} disabled={currentIndex === 0}>Sebelumnya</button>
-              {currentIndex >= currentQuestions.length - 1 ? (
+              {currentIndex >= questionCount - 1 ? (
                 <button type="button" onClick={() => setSubmitConfirmOpen(true)} disabled={!canSubmitNow || remainingMs <= 0 || saving}>
                   <Send size={18} /> {canSubmitNow ? "Submit" : "Submit belum tersedia"}
                 </button>
               ) : (
-                <button type="button" onClick={() => setCurrentIndex((index) => Math.min(currentQuestions.length - 1, index + 1))}>Berikutnya</button>
+                <button type="button" onClick={() => setCurrentIndex((index) => Math.min(questionCount - 1, index + 1))}>Berikutnya</button>
               )}
             </div>
           </article>
         ) : (
           <div className="empty-state">
             <BookOpen size={34} />
-            <strong>Soal tidak tersedia.</strong>
-            <p>Coba tekan Muat Ulang Soal atau hubungi pengawas.</p>
+            <strong>{loadingQuestion ? "Memuat soal..." : "Soal tidak tersedia."}</strong>
+            <p>{loadingQuestion ? "Mohon tunggu sebentar." : "Coba tekan Muat Ulang Soal atau hubungi pengawas."}</p>
           </div>
         )}
       </section>
@@ -4986,7 +5594,7 @@ function ExamTaking({ session, onFinished }) {
               )}
             </div>
             <div className="submit-confirm-summary">
-              <div><span>Terjawab</span><strong>{answeredCount}/{currentQuestions.length}</strong></div>
+              <div><span>Terjawab</span><strong>{answeredCount}/{questionCount}</strong></div>
               <div><span>Waktu</span><strong>{formatRemainingTime(remainingMs)}</strong></div>
             </div>
             <p>Yakin ingin mengirim jawaban sekarang?</p>
@@ -5189,6 +5797,50 @@ function PanelTitle({ icon: Icon, title }) {
   return <h2 className="panel-title"><Icon size={18} /> {title}</h2>;
 }
 
+function PasswordConfirmModal({
+  title,
+  icon = AlertTriangle,
+  description,
+  confirmText,
+  passwordLabel = "Password akun",
+  actionLabel = "Konfirmasi",
+  reason,
+  setReason,
+  password,
+  setPassword,
+  confirmation,
+  setConfirmation,
+  loading = false,
+  onCancel,
+  onConfirm
+}) {
+  const ready = password.trim() && (!confirmText || confirmation.trim().toUpperCase() === confirmText) && (setReason ? reason.trim() : true);
+  return (
+    <Modal title={title} icon={icon} onClose={onCancel}>
+      <form className="student-form danger-confirm-form" onSubmit={(event) => { event.preventDefault(); if (ready && !loading) onConfirm(); }}>
+        <div className="error-box">{description}</div>
+        {setReason ? (
+          <label>Alasan
+            <textarea value={reason} placeholder="Contoh: pelanggaran saat ujian" onChange={(event) => setReason(event.target.value)} required />
+          </label>
+        ) : null}
+        {confirmText ? (
+          <label>Ketik Konfirmasi
+            <input value={confirmation} placeholder={confirmText} onChange={(event) => setConfirmation(event.target.value.toUpperCase())} required />
+          </label>
+        ) : null}
+        <label>{passwordLabel}
+          <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
+        </label>
+        <div className="form-actions">
+          <button type="submit" className="danger-button" disabled={!ready || loading}><AlertTriangle size={18} /> {loading ? "Memproses..." : actionLabel}</button>
+          <button type="button" className="ghost-button" onClick={onCancel} disabled={loading}>Batal</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 function DataTable({ headers, rows }) {
   return (
     <div className="table-wrap">
@@ -5311,12 +5963,13 @@ function App() {
 
   useEffect(() => {
     if (!user || user.role === "siswa") return undefined;
-    const refreshMs = view === "monitoring" || user.role === "pengawas" ? 5000 : 30000;
+    const monitoringRefreshMs = clampNumber(examSettings.monitoringRefreshSeconds, 5, 60, 10) * 1000;
+    const refreshMs = view === "monitoring" || user.role === "pengawas" ? monitoringRefreshMs : 30000;
     const timer = window.setInterval(() => {
       refresh(view === "monitoring" || user.role === "pengawas" ? "monitoring" : "full").catch(() => {});
     }, refreshMs);
     return () => window.clearInterval(timer);
-  }, [user, view]);
+  }, [user, view, examSettings.monitoringRefreshSeconds]);
 
   if (!user) return <Login onLogin={setUser} />;
 

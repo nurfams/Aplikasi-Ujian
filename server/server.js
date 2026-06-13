@@ -6,6 +6,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   deleteSessionFromPostgres,
+  getAppSettingFromPostgres,
+  getAuthContextFromPostgres,
+  getUserByUsernameFromPostgres,
   initDatabase,
   postgresEnabled,
   readStoreFromPostgres,
@@ -30,7 +33,7 @@ const examClientKey = process.env.EXAM_CLIENT_KEY || "dev-exam-client-key";
 const accessTokenChars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const examClientHeartbeatTimeoutMs = Number(process.env.EXAM_CLIENT_HEARTBEAT_TIMEOUT_SECONDS || 25) * 1000;
 const examClientHeartbeatRepeatMs = Number(process.env.EXAM_CLIENT_HEARTBEAT_REPEAT_SECONDS || 120) * 1000;
-const postgresStoreCacheMs = Number(process.env.POSTGRES_STORE_CACHE_MS || 500);
+const postgresStoreCacheMs = Number(process.env.POSTGRES_STORE_CACHE_MS || 2000);
 
 app.use(cors());
 app.use(express.json({ limit: "8mb" }));
@@ -101,7 +104,16 @@ const seed = {
     requireReviewBeforePublish: false,
     requireWeight100BeforePublish: false,
     defaultRandomizeQuestions: true,
-    defaultRandomizeOptions: true
+    defaultRandomizeOptions: true,
+    heartbeatIntervalSeconds: 30,
+    heartbeatJitterSeconds: 10,
+    autosaveBatchSize: 3,
+    autosaveIntervalSeconds: 20,
+    monitoringRefreshSeconds: 10,
+    progressiveSoftLimitBytes: 1024 * 1024,
+    progressiveHardLimitBytes: 2 * 1024 * 1024,
+    progressiveParticipantLimit: 100,
+    questionPrefetchCount: 2
   }
 };
 
@@ -123,6 +135,20 @@ async function readSeedStore() {
   }
 }
 
+let seedStorePromise = null;
+let databaseReadyPromise = null;
+
+function getSeedStore() {
+  seedStorePromise ??= readSeedStore();
+  return seedStorePromise;
+}
+
+async function ensureDatabaseReady() {
+  if (!postgresEnabled) return;
+  databaseReadyPromise ??= getSeedStore().then((seedStore) => initDatabase(seedStore));
+  await databaseReadyPromise;
+}
+
 let postgresStoreCache = null;
 let postgresStoreCacheAt = 0;
 let postgresStoreReadPromise = null;
@@ -134,7 +160,7 @@ function invalidatePostgresStoreCache() {
 
 async function readStore() {
   if (postgresEnabled) {
-    await initDatabase(await readSeedStore());
+    await ensureDatabaseReady();
     const now = Date.now();
     if (postgresStoreCache && now - postgresStoreCacheAt < postgresStoreCacheMs) {
       return normalizeStore(structuredClone(postgresStoreCache));
@@ -165,10 +191,10 @@ async function writeStore(store) {
   await fs.writeFile(storePath, JSON.stringify(normalized, null, 2), "utf8");
 }
 
-async function persistAttemptChange(store, attempt) {
+async function persistAttemptChange(store, attempt, { invalidateCache = true } = {}) {
   if (postgresEnabled) {
     await saveAttemptToPostgres(attempt);
-    invalidatePostgresStoreCache();
+    if (invalidateCache) invalidatePostgresStoreCache();
     return;
   }
   await writeStore(store);
@@ -184,7 +210,7 @@ async function persistViolationChange(store, violation) {
   await writeStore(store);
 }
 
-async function persistAttemptAndViolationChanges(store, attempts = [], violations = []) {
+async function persistAttemptAndViolationChanges(store, attempts = [], violations = [], { invalidateCache = true } = {}) {
   if (!attempts.length && !violations.length) return;
   if (!postgresEnabled) {
     await writeStore(store);
@@ -198,13 +224,12 @@ async function persistAttemptAndViolationChanges(store, attempts = [], violation
   for (const violation of uniqueViolations) {
     await saveViolationToPostgres(violation);
   }
-  invalidatePostgresStoreCache();
+  if (invalidateCache) invalidatePostgresStoreCache();
 }
 
 async function persistSessionTouch(store, session) {
   if (postgresEnabled) {
     await touchSessionInPostgres(session.id, session.lastSeenAt);
-    invalidatePostgresStoreCache();
     return;
   }
   await writeStore(store);
@@ -226,6 +251,16 @@ async function persistLoginChange(store, session, auditLog, { replaceUserSession
   }
   await saveLoginSessionToPostgres(session, { replaceUserSessions });
   if (auditLog) await saveAuditLogToPostgres(auditLog);
+  invalidatePostgresStoreCache();
+}
+
+async function persistAuditLogChange(store, auditLog) {
+  if (!auditLog) return;
+  if (!postgresEnabled) {
+    await writeStore(store);
+    return;
+  }
+  await saveAuditLogToPostgres(auditLog);
   invalidatePostgresStoreCache();
 }
 
@@ -288,6 +323,15 @@ function normalizeExamSettings(settings = {}) {
   const validIntervals = new Set([15, 30, 45, 60]);
   const interval = Number(settings.tokenIntervalMinutes || 15);
   const submitUnlockMinutes = Math.max(0, Math.min(120, Number(settings.submitUnlockMinutes ?? 30)));
+  const heartbeatIntervalSeconds = Math.max(15, Math.min(120, Number(settings.heartbeatIntervalSeconds ?? 30)));
+  const heartbeatJitterSeconds = Math.max(0, Math.min(30, Number(settings.heartbeatJitterSeconds ?? 10)));
+  const autosaveBatchSize = Math.max(1, Math.min(10, Number(settings.autosaveBatchSize ?? 3)));
+  const autosaveIntervalSeconds = Math.max(5, Math.min(60, Number(settings.autosaveIntervalSeconds ?? 20)));
+  const monitoringRefreshSeconds = Math.max(5, Math.min(60, Number(settings.monitoringRefreshSeconds ?? 10)));
+  const progressiveSoftLimitBytes = Math.max(128 * 1024, Math.min(5 * 1024 * 1024, Number(settings.progressiveSoftLimitBytes ?? 1024 * 1024)));
+  const progressiveHardLimitBytes = Math.max(progressiveSoftLimitBytes, Math.min(10 * 1024 * 1024, Number(settings.progressiveHardLimitBytes ?? 2 * 1024 * 1024)));
+  const progressiveParticipantLimit = Math.max(25, Math.min(1000, Number(settings.progressiveParticipantLimit ?? 100)));
+  const questionPrefetchCount = Math.max(0, Math.min(5, Number(settings.questionPrefetchCount ?? 2)));
   return {
     examWithoutToken: !!settings.examWithoutToken,
     tokenIntervalMinutes: validIntervals.has(interval) ? interval : 15,
@@ -297,7 +341,16 @@ function normalizeExamSettings(settings = {}) {
     requireReviewBeforePublish: !!settings.requireReviewBeforePublish,
     requireWeight100BeforePublish: !!settings.requireWeight100BeforePublish,
     defaultRandomizeQuestions: settings.defaultRandomizeQuestions !== false,
-    defaultRandomizeOptions: settings.defaultRandomizeOptions !== false
+    defaultRandomizeOptions: settings.defaultRandomizeOptions !== false,
+    heartbeatIntervalSeconds,
+    heartbeatJitterSeconds,
+    autosaveBatchSize,
+    autosaveIntervalSeconds,
+    monitoringRefreshSeconds,
+    progressiveSoftLimitBytes,
+    progressiveHardLimitBytes,
+    progressiveParticipantLimit,
+    questionPrefetchCount
   };
 }
 
@@ -732,6 +785,121 @@ function roundDecimal(value, precision = 2) {
   return Math.round(Number(value || 0) * factor) / factor;
 }
 
+const FULL_PAYLOAD_SOFT_LIMIT_BYTES = Number(process.env.EXAM_PAYLOAD_SOFT_LIMIT_BYTES || 500 * 1024);
+const FULL_PAYLOAD_HARD_LIMIT_BYTES = Number(process.env.EXAM_PAYLOAD_HARD_LIMIT_BYTES || 2 * 1024 * 1024);
+const PROGRESSIVE_PARTICIPANT_LIMIT = Number(process.env.EXAM_PROGRESSIVE_PARTICIPANT_LIMIT || 100);
+const MASS_PARTICIPANT_LIMIT = Number(process.env.EXAM_MASS_PARTICIPANT_LIMIT || 300);
+const examQuestionCache = new Map();
+
+function clonePayload(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (value >= 1024 * 1024) return `${roundDecimal(value / 1024 / 1024, 2)} MB`;
+  return `${Math.max(1, Math.round(value / 1024))} KB`;
+}
+
+function questionPayloadSignature(question) {
+  return [
+    question.id,
+    question.type,
+    question.body?.length || 0,
+    question.image?.length || 0,
+    JSON.stringify(question.options || []).length,
+    JSON.stringify(question.statements || []).length,
+    JSON.stringify(question.pairs || []).length,
+    Number(question.score || 0)
+  ].join(":");
+}
+
+function getCachedSafeQuestionMap(store, examId) {
+  const examQuestions = store.questions.filter((question) => question.examId === examId);
+  const signature = examQuestions.map(questionPayloadSignature).join("|");
+  const cached = examQuestionCache.get(examId);
+  if (cached?.signature === signature) return cached;
+
+  const byId = new Map(examQuestions.map((question) => [question.id, safeQuestionForStudent(question)]));
+  const next = { signature, byId, questions: examQuestions };
+  examQuestionCache.set(examId, next);
+  return next;
+}
+
+function invalidateExamQuestionCache(examId) {
+  if (examId) examQuestionCache.delete(examId);
+  else examQuestionCache.clear();
+}
+
+function estimateJsonBytes(value) {
+  return Buffer.byteLength(JSON.stringify(value), "utf8");
+}
+
+function imagePayloadBytesFromQuestion(question) {
+  const values = [
+    question.image,
+    ...(question.options || []).map((option) => option.image),
+    ...(question.statements || []).map((statement) => statement.image),
+    ...(question.pairs || []).flatMap((pair) => [pair.leftImage, pair.rightImage])
+  ].filter(Boolean);
+  return values.reduce((sum, value) => sum + Buffer.byteLength(String(value), "utf8"), 0);
+}
+
+function analyzeExamPayload(store, exam) {
+  const settings = normalizeExamSettings(store.examSettings);
+  const softLimitBytes = Number(settings.progressiveSoftLimitBytes || FULL_PAYLOAD_SOFT_LIMIT_BYTES);
+  const hardLimitBytes = Number(settings.progressiveHardLimitBytes || FULL_PAYLOAD_HARD_LIMIT_BYTES);
+  const progressiveParticipantLimit = Number(settings.progressiveParticipantLimit || PROGRESSIVE_PARTICIPANT_LIMIT);
+  const cached = getCachedSafeQuestionMap(store, exam.id);
+  const questions = cached.questions.map((question) => cached.byId.get(question.id)).filter(Boolean);
+  const bytes = estimateJsonBytes({ questions });
+  const participantCount = store.attempts.filter((attempt) => attempt.examId === exam.id).length;
+  const imageCount = cached.questions.reduce((sum, question) => {
+    return sum
+      + (question.image ? 1 : 0)
+      + (question.options || []).filter((option) => option.image).length
+      + (question.statements || []).filter((statement) => statement.image).length
+      + (question.pairs || []).filter((pair) => pair.leftImage).length
+      + (question.pairs || []).filter((pair) => pair.rightImage).length;
+  }, 0);
+  const imageBytes = cached.questions.reduce((sum, question) => sum + imagePayloadBytesFromQuestion(question), 0);
+  let level = "small";
+  let recommendedDeliveryMode = "full";
+  let message = "Paket soal kecil, aman dikirim sekaligus.";
+  if (bytes > hardLimitBytes) {
+    level = "large";
+    recommendedDeliveryMode = "progressive";
+    message = "Paket soal besar, disarankan dikirim bertahap agar mulai ujian lebih ringan.";
+  } else if (participantCount >= MASS_PARTICIPANT_LIMIT) {
+    level = "large";
+    recommendedDeliveryMode = "progressive";
+    message = "Peserta sangat banyak, mode bertahap dipakai untuk mengurangi beban awal server.";
+  } else if (participantCount >= progressiveParticipantLimit && (bytes > 128 * 1024 || imageCount > 0)) {
+    level = "medium";
+    recommendedDeliveryMode = "progressive";
+    message = "Peserta cukup banyak, mode bertahap dipakai agar koneksi awal lebih ringan.";
+  } else if (bytes > softLimitBytes) {
+    level = "medium";
+    message = "Paket soal sedang, masih bisa dikirim sekaligus tetapi perlu dipantau saat ujian massal.";
+  }
+  return {
+    bytes,
+    label: formatBytes(bytes),
+    imageBytes,
+    imageLabel: imageBytes ? formatBytes(imageBytes) : "0 KB",
+    imageCount,
+    questionCount: questions.length,
+    participantCount,
+    level,
+    recommendedDeliveryMode,
+    softLimitBytes,
+    hardLimitBytes,
+    progressiveParticipantLimit,
+    massParticipantLimit: MASS_PARTICIPANT_LIMIT,
+    message
+  };
+}
+
 function shuffledCopy(items) {
   const list = [...items];
   for (let index = list.length - 1; index > 0; index -= 1) {
@@ -775,12 +943,12 @@ function prepareAttemptQuestionOrder(store, exam, attempt) {
 
 function questionsForAttempt(store, exam, attempt) {
   prepareAttemptQuestionOrder(store, exam, attempt);
-  const byId = new Map(store.questions.filter((question) => question.examId === exam.id).map((question) => [question.id, question]));
+  const cached = getCachedSafeQuestionMap(store, exam.id);
   return (attempt.questionOrder || [])
-    .map((questionId) => byId.get(questionId))
+    .map((questionId) => cached.byId.get(questionId))
     .filter(Boolean)
     .map((question) => {
-      const safe = safeQuestionForStudent(question);
+      const safe = clonePayload(question);
       const optionOrder = attempt.optionOrders?.[question.id];
       if (Array.isArray(optionOrder) && optionOrder.length && Array.isArray(safe.options)) {
         const optionsByKey = new Map(safe.options.map((option) => [option.key, option]));
@@ -792,6 +960,18 @@ function questionsForAttempt(store, exam, attempt) {
       }
       return safe;
     });
+}
+
+function questionManifestForAttempt(store, exam, attempt) {
+  prepareAttemptQuestionOrder(store, exam, attempt);
+  const cached = getCachedSafeQuestionMap(store, exam.id);
+  return (attempt.questionOrder || [])
+    .map((questionId, index) => {
+      const question = cached.byId.get(questionId);
+      if (!question) return null;
+      return { id: question.id, index, type: question.type };
+    })
+    .filter(Boolean);
 }
 
 function normalizeClock(value) {
@@ -939,6 +1119,9 @@ function safeIsoDate(value, fallback = new Date().toISOString()) {
 
 function ensureExamClientHeartbeatViolations(store) {
   const now = Date.now();
+  const settings = normalizeExamSettings(store.examSettings);
+  const heartbeatTimeoutMs = Math.max(examClientHeartbeatTimeoutMs, Number(settings.heartbeatIntervalSeconds || 30) * 3 * 1000);
+  const heartbeatRepeatMs = Math.max(examClientHeartbeatRepeatMs, Number(settings.heartbeatIntervalSeconds || 30) * 4 * 1000);
   let changed = false;
   const violations = [];
   for (const attempt of store.attempts) {
@@ -948,9 +1131,9 @@ function ensureExamClientHeartbeatViolations(store) {
     const lastHeartbeatAt = Date.parse(attempt.updatedAt || attempt.startedAt || "");
     if (!lastHeartbeatAt || Number.isNaN(lastHeartbeatAt)) continue;
     const silentMs = now - lastHeartbeatAt;
-    if (silentMs < examClientHeartbeatTimeoutMs) continue;
+    if (silentMs < heartbeatTimeoutMs) continue;
 
-    const incidentSlot = Math.floor(lastHeartbeatAt / examClientHeartbeatRepeatMs);
+    const incidentSlot = Math.floor(lastHeartbeatAt / heartbeatRepeatMs);
     const { violation, created } = addViolationLog(store, {
       studentId: attempt.studentId,
       examId: attempt.examId,
@@ -1006,6 +1189,49 @@ async function requireAuth(req, res, next) {
   const session = verifySessionToken(token);
   if (!session) return res.status(401).json({ message: "Sesi login tidak valid atau sudah kedaluwarsa." });
 
+  if (postgresEnabled) {
+    await ensureDatabaseReady();
+    const context = await getAuthContextFromPostgres(session.sub, session.sid);
+    const user = context.user;
+    if (!user) return res.status(401).json({ message: "Akun tidak ditemukan." });
+
+    if (session.sid) {
+      const activeSession = context.session;
+      if (!activeSession || activeSession.userId !== user.id) {
+        return res.status(401).json({ message: "Akun ini sudah login di perangkat lain. Silakan login ulang." });
+      }
+      if (activeSession.expiresAt && new Date(activeSession.expiresAt).getTime() <= Date.now()) {
+        await persistSessionDelete({ sessions: [] }, session.sid);
+        return res.status(401).json({ message: "Sesi login sudah kedaluwarsa." });
+      }
+
+      const lastSeen = activeSession.lastSeenAt ? new Date(activeSession.lastSeenAt).getTime() : 0;
+      if (Date.now() - lastSeen > 60 * 1000) {
+        activeSession.lastSeenAt = new Date().toISOString();
+        await persistSessionTouch({ sessions: [activeSession] }, activeSession);
+      }
+      req.activeSession = activeSession;
+    } else if (user.role === "siswa") {
+      return res.status(401).json({ message: "Sesi siswa perlu login ulang agar satu akun hanya aktif di satu perangkat." });
+    }
+
+    req.user = publicUser(user);
+    if (user.role === "siswa") {
+      const accessStore = { accessControl: context.accessControl };
+      const accessState = getStudentAccessState(accessStore, req.activeSession);
+      const allowedPaths = new Set(["/api/me", "/api/browser-access/authorize"]);
+      if (accessState.required && !allowedPaths.has(req.path)) {
+        return res.status(403).json({
+          code: "BROWSER_ACCESS_REQUIRED",
+          message: accessState.message,
+          accessState
+        });
+      }
+      req.user.accessState = accessState;
+    }
+    return next();
+  }
+
   const store = await readStore();
   const user = store.users.find((item) => item.id === session.sub);
   if (!user) return res.status(401).json({ message: "Akun tidak ditemukan." });
@@ -1057,6 +1283,16 @@ function allowRoles(...roles) {
 function canManageExam(user, exam) {
   if (user.role === "admin") return true;
   return user.role === "guru" && normalizeTeacherIds(exam).includes(user.id);
+}
+
+async function requireAdminPassword(store, req, password) {
+  const admin = store.users.find((user) => user.id === req.user?.id && user.role === "admin");
+  return Boolean(admin && await verifyPasswordAsync(admin.password, password));
+}
+
+async function requireCurrentUserPassword(store, req, password) {
+  const user = store.users.find((item) => item.id === req.user?.id);
+  return Boolean(user && await verifyPasswordAsync(user.password, password));
 }
 
 function addAuditLog(store, req, action, entityType, entityId, message, metadata = {}) {
@@ -1212,6 +1448,37 @@ app.get("/api/health", async (_req, res) => {
 
 app.post("/api/login", async (req, res) => {
   const { username, password } = req.body ?? {};
+  if (postgresEnabled) {
+    await ensureDatabaseReady();
+    const user = await getUserByUsernameFromPostgres(username);
+    if (!user || !(await verifyPasswordAsync(user.password, password))) {
+      return res.status(401).json({ message: "Username atau password salah." });
+    }
+    const store = {
+      users: [user],
+      sessions: [],
+      auditLogs: [],
+      accessControl: await getAppSettingFromPostgres("access_control")
+    };
+    if (isExamClientRequest(req) && user.role !== "siswa") {
+      const auditLog = addAuditLog(store, { ...req, user: publicUser(user) }, "blocked_exam_client_login", "session", "", `${user.name} ditolak login dari Exam Browser karena bukan akun siswa.`, {
+        role: user.role
+      });
+      await saveAuditLogToPostgres(auditLog);
+      return res.status(403).json({
+        message: "Aplikasi Exam Browser hanya untuk peserta didik. Admin, guru, dan pengawas silakan login melalui browser biasa."
+      });
+    }
+    const loginSession = createLoginSession(req, store, user);
+    const accessState = getStudentAccessState(store, loginSession);
+    const auditLog = addAuditLog(store, { ...req, user: publicUser(user) }, "login", "session", loginSession.id, `${user.name} login.`, {
+      accessMethod: loginSession.accessMethod,
+      accessState
+    });
+    await persistLoginChange(store, loginSession, auditLog, { replaceUserSessions: user.role === "siswa" });
+    return res.json({ user: { ...publicUser(user), accessState }, token: createSessionToken(user, loginSession.id) });
+  }
+
   const store = await readStore();
   const user = store.users.find((item) => item.username === username);
   if (!user || !(await verifyPasswordAsync(user.password, password))) {
@@ -1345,7 +1612,16 @@ app.put("/api/exam-settings", allowRoles("admin"), async (req, res) => {
     requireReviewBeforePublish: req.body.requireReviewBeforePublish ?? current.requireReviewBeforePublish,
     requireWeight100BeforePublish: req.body.requireWeight100BeforePublish ?? current.requireWeight100BeforePublish,
     defaultRandomizeQuestions: req.body.defaultRandomizeQuestions ?? current.defaultRandomizeQuestions,
-    defaultRandomizeOptions: req.body.defaultRandomizeOptions ?? current.defaultRandomizeOptions
+    defaultRandomizeOptions: req.body.defaultRandomizeOptions ?? current.defaultRandomizeOptions,
+    heartbeatIntervalSeconds: req.body.heartbeatIntervalSeconds ?? current.heartbeatIntervalSeconds,
+    heartbeatJitterSeconds: req.body.heartbeatJitterSeconds ?? current.heartbeatJitterSeconds,
+    autosaveBatchSize: req.body.autosaveBatchSize ?? current.autosaveBatchSize,
+    autosaveIntervalSeconds: req.body.autosaveIntervalSeconds ?? current.autosaveIntervalSeconds,
+    monitoringRefreshSeconds: req.body.monitoringRefreshSeconds ?? current.monitoringRefreshSeconds,
+    progressiveSoftLimitBytes: req.body.progressiveSoftLimitBytes ?? current.progressiveSoftLimitBytes,
+    progressiveHardLimitBytes: req.body.progressiveHardLimitBytes ?? current.progressiveHardLimitBytes,
+    progressiveParticipantLimit: req.body.progressiveParticipantLimit ?? current.progressiveParticipantLimit,
+    questionPrefetchCount: req.body.questionPrefetchCount ?? current.questionPrefetchCount
   });
   store.examSettings = next;
   addAuditLog(store, req, "update_exam_settings", "exam_settings", "global", "Pengaturan ujian diperbarui.", next);
@@ -1481,6 +1757,28 @@ app.delete("/api/teachers/:id", allowRoles("admin"), async (req, res) => {
   addAuditLog(store, req, "delete", "teacher", teacher.id, `Guru ${teacher.name} dihapus.`, { username: teacher.username });
   await writeStore(store);
   res.json({ ok: true });
+});
+
+app.post("/api/teachers/delete-all", allowRoles("admin"), async (req, res) => {
+  const store = await readStore();
+  const password = String(req.body.password || "");
+  const confirmation = String(req.body.confirmation || "").trim().toUpperCase();
+  if (confirmation !== "HAPUS GURU") return res.status(400).json({ message: "Ketik HAPUS GURU untuk konfirmasi." });
+  if (!await requireAdminPassword(store, req, password)) return res.status(403).json({ message: "Password admin salah." });
+
+  const teacherIds = new Set(store.users.filter((user) => user.role === "guru").map((user) => user.id));
+  const deletedTeachers = teacherIds.size;
+  for (const exam of store.exams) {
+    exam.teacherIds = normalizeTeacherIds(exam).filter((id) => !teacherIds.has(id));
+    exam.teacherId = exam.teacherIds[0] || "";
+  }
+  store.users = store.users.filter((user) => user.role !== "guru");
+  store.sessions = (store.sessions || []).filter((session) => !teacherIds.has(session.userId));
+  addAuditLog(store, req, "delete_all", "teacher", "all", `${deletedTeachers} guru dihapus massal oleh admin.`, {
+    deletedTeachers
+  });
+  await writeStore(store);
+  res.json({ ok: true, deletedTeachers });
 });
 
 app.post("/api/students", allowRoles("admin"), async (req, res) => {
@@ -1624,6 +1922,31 @@ app.post("/api/students/passwords", allowRoles("admin"), async (req, res) => {
   res.json({ updated: changed.length });
 });
 
+app.post("/api/students/delete-all", allowRoles("admin"), async (req, res) => {
+  const store = await readStore();
+  const password = String(req.body.password || "");
+  const confirmation = String(req.body.confirmation || "").trim().toUpperCase();
+  if (confirmation !== "HAPUS SISWA") return res.status(400).json({ message: "Ketik HAPUS SISWA untuk konfirmasi." });
+  if (!await requireAdminPassword(store, req, password)) return res.status(403).json({ message: "Password admin salah." });
+
+  const studentIds = new Set(store.students.map((student) => student.id));
+  const deletedStudents = store.students.length;
+  const deletedAttempts = store.attempts.filter((attempt) => studentIds.has(attempt.studentId)).length;
+  const deletedViolations = store.violations.filter((violation) => studentIds.has(violation.studentId)).length;
+  store.students = [];
+  store.users = store.users.filter((user) => user.role !== "siswa" && !studentIds.has(user.id));
+  store.attempts = store.attempts.filter((attempt) => !studentIds.has(attempt.studentId));
+  store.violations = store.violations.filter((violation) => !studentIds.has(violation.studentId));
+  store.sessions = (store.sessions || []).filter((session) => !studentIds.has(session.userId));
+  addAuditLog(store, req, "delete_all", "student", "all", `${deletedStudents} siswa dihapus massal oleh admin.`, {
+    deletedStudents,
+    deletedAttempts,
+    deletedViolations
+  });
+  await writeStore(store);
+  res.json({ ok: true, deletedStudents, deletedAttempts, deletedViolations });
+});
+
 app.delete("/api/students/:id", allowRoles("admin"), async (req, res) => {
   const store = await readStore();
   const before = store.students.length;
@@ -1644,6 +1967,7 @@ app.get("/api/exams", allowRoles("admin", "guru", "pengawas"), async (req, res) 
     ...exam,
     teacherIds: normalizeTeacherIds(exam),
     teacherNames: normalizeTeacherIds(exam).map((teacherId) => store.users.find((user) => user.id === teacherId)?.name).filter(Boolean),
+    payloadAnalysis: analyzeExamPayload(store, exam),
     questionCount: store.questions.filter((question) => question.examId === exam.id).length,
     participantCount: store.attempts.filter((attempt) => attempt.examId === exam.id).length,
     attemptStatusCounts: store.attempts.filter((attempt) => attempt.examId === exam.id).reduce((counts, attempt) => {
@@ -1737,6 +2061,7 @@ app.delete("/api/exams/:id", allowRoles("admin", "guru"), async (req, res) => {
   store.questions = store.questions.filter((question) => question.examId !== req.params.id);
   store.attempts = store.attempts.filter((attempt) => attempt.examId !== req.params.id);
   store.violations = store.violations.filter((violation) => violation.examId !== req.params.id);
+  invalidateExamQuestionCache(req.params.id);
   addAuditLog(store, req, "delete", "exam", exam.id, `Ujian ${exam.code} dihapus.`, { subject: exam.subject });
   await writeStore(store);
   res.json({ ok: true });
@@ -1835,6 +2160,7 @@ app.post("/api/questions", allowRoles("admin", "guru"), async (req, res) => {
     ...payload
   };
   store.questions.push(question);
+  invalidateExamQuestionCache(exam.id);
   addAuditLog(store, req, "create", "question", question.id, `Soal baru ditambahkan ke ${exam.code}.`, { examId: exam.id, type: question.type });
   await writeStore(store);
   res.status(201).json(question);
@@ -1856,6 +2182,7 @@ app.post("/api/questions/bulk", allowRoles("admin", "guru"), async (req, res) =>
     }
     const question = { id: createId("q"), ...payload };
     store.questions.push(question);
+    invalidateExamQuestionCache(exam.id);
     created.push(question);
   }
 
@@ -1890,6 +2217,7 @@ app.post("/api/questions/weights/generate", allowRoles("admin", "guru"), async (
     question.score = score;
     assignedScore = roundDecimal(assignedScore + score, precision);
   });
+  invalidateExamQuestionCache(exam.id);
 
   const totalScore = roundDecimal(examQuestions.reduce((sum, question) => sum + Number(question.score || 0), 0), precision);
   addAuditLog(store, req, "generate_question_weights", "exam", exam.id, `Bobot ${examQuestions.length} soal ${exam.code} digenerate menjadi total ${totalScore}.`, {
@@ -1923,6 +2251,8 @@ app.put("/api/questions/:id", allowRoles("admin", "guru"), async (req, res) => {
   if (validation) return res.status(400).json({ message: validation });
 
   Object.assign(question, payload);
+  invalidateExamQuestionCache(currentExam.id);
+  invalidateExamQuestionCache(nextExam.id);
   addAuditLog(store, req, "update", "question", question.id, `Soal pada ${nextExam.code} diperbarui.`, { examId: nextExam.id, type: question.type });
   await writeStore(store);
   res.json(question);
@@ -1937,6 +2267,7 @@ app.delete("/api/questions/:id", allowRoles("admin", "guru"), async (req, res) =
   const before = store.questions.length;
   store.questions = store.questions.filter((question) => question.id !== req.params.id);
   if (store.questions.length === before) return res.status(404).json({ message: "Soal tidak ditemukan." });
+  invalidateExamQuestionCache(exam.id);
   for (const attempt of store.attempts) {
     delete attempt.answers?.[req.params.id];
     attempt.questionOrder = (attempt.questionOrder || []).filter((questionId) => questionId !== req.params.id);
@@ -1984,6 +2315,7 @@ app.get("/api/student/:studentId/exams", allowRoles("admin", "siswa"), async (re
       ...attempt,
       exam,
       questionCount,
+      payloadAnalysis: analyzeExamPayload(store, exam),
       scheduleStatus: availability.scheduleStatus,
       scheduleMessage: availability.message,
       canStart: availability.canStart && attempt.status !== "submitted",
@@ -2036,9 +2368,22 @@ app.post("/api/attempts/start", allowRoles("admin", "siswa"), async (req, res) =
     });
     violationToSave = violation;
   }
+  const payloadAnalysis = analyzeExamPayload(store, exam);
+  const requestedDeliveryMode = String(req.body?.deliveryMode || "").toLowerCase();
+  const deliveryMode = requestedDeliveryMode === "full" ? "full" : payloadAnalysis.recommendedDeliveryMode;
   const questions = questionsForAttempt(store, exam, attempt);
+  const questionManifest = questionManifestForAttempt(store, exam, attempt);
   await persistAttemptAndViolationChanges(store, [attempt], violationToSave ? [violationToSave] : []);
-  res.json({ attempt, exam, questions, availability });
+  res.json({
+    attempt,
+    exam,
+    questions: deliveryMode === "progressive" ? questions.slice(0, 1) : questions,
+    questionManifest,
+    deliveryMode,
+    payloadAnalysis,
+    examSettings: normalizeExamSettings(store.examSettings),
+    availability
+  });
 });
 
 app.get("/api/attempts/:id/reload", allowRoles("admin", "siswa"), async (req, res) => {
@@ -2058,7 +2403,11 @@ app.get("/api/attempts/:id/reload", allowRoles("admin", "siswa"), async (req, re
     return res.status(409).json({ message: "Waktu ujian sudah berakhir. Jawaban sudah disubmit otomatis.", attempt });
   }
 
+  const payloadAnalysis = analyzeExamPayload(store, exam);
+  const requestedDeliveryMode = String(req.query.deliveryMode || "").toLowerCase();
+  const deliveryMode = requestedDeliveryMode === "progressive" ? "progressive" : payloadAnalysis.recommendedDeliveryMode;
   const questions = questionsForAttempt(store, exam, attempt);
+  const questionManifest = questionManifestForAttempt(store, exam, attempt);
   let violationToSave = null;
   if (req.user.role === "siswa") {
     const { violation } = addViolationLog(store, {
@@ -2072,7 +2421,50 @@ app.get("/api/attempts/:id/reload", allowRoles("admin", "siswa"), async (req, re
     violationToSave = violation;
   }
   await persistViolationChange(store, violationToSave);
-  res.json({ attempt, exam, questions, availability });
+  res.json({
+    attempt,
+    exam,
+    questions: deliveryMode === "progressive" ? questions.slice(0, 1) : questions,
+    questionManifest,
+    deliveryMode,
+    payloadAnalysis,
+    examSettings: normalizeExamSettings(store.examSettings),
+    availability
+  });
+});
+
+app.get("/api/attempts/:id/question/:index", allowRoles("admin", "siswa"), async (req, res) => {
+  const store = await readStore();
+  const attempt = store.attempts.find((item) => item.id === req.params.id);
+  if (!attempt) return res.status(404).json({ message: "Attempt tidak ditemukan." });
+  if (req.user.role === "siswa" && req.user.id !== attempt.studentId) {
+    return res.status(403).json({ message: "Peserta hanya bisa membuka soal miliknya sendiri." });
+  }
+  if (attempt.status === "submitted") return res.status(409).json({ message: "Ujian sudah selesai disubmit.", attempt });
+
+  const exam = store.exams.find((item) => item.id === attempt.examId);
+  if (!exam) return res.status(404).json({ message: "Ujian tidak ditemukan." });
+  if (finishAttemptIfExpired(store, attempt)) {
+    await persistAttemptChange(store, attempt);
+    return res.status(409).json({ message: "Waktu ujian sudah berakhir. Jawaban sudah disubmit otomatis.", attempt });
+  }
+
+  const index = Number(req.params.index);
+  if (!Number.isInteger(index) || index < 0) return res.status(400).json({ message: "Nomor soal tidak valid." });
+  const questions = questionsForAttempt(store, exam, attempt);
+  const question = questions[index];
+  if (!question) return res.status(404).json({ message: "Soal tidak ditemukan." });
+
+  res.json({
+    attempt,
+    exam,
+    question,
+    index,
+    questionManifest: questionManifestForAttempt(store, exam, attempt),
+    payloadAnalysis: analyzeExamPayload(store, exam),
+    examSettings: normalizeExamSettings(store.examSettings),
+    availability: getExamAvailability(exam)
+  });
 });
 
 app.put("/api/attempts/:id/answers", allowRoles("admin", "siswa"), async (req, res) => {
@@ -2084,15 +2476,21 @@ app.put("/api/attempts/:id/answers", allowRoles("admin", "siswa"), async (req, r
   }
   if (attempt.status === "submitted") return res.status(409).json({ message: "Jawaban sudah final.", attempt });
 
-  if (finishAttemptIfExpired(store, attempt, req.body.answers || {})) {
+  const incomingAnswers = req.body.answersPatch && typeof req.body.answersPatch === "object"
+    ? req.body.answersPatch
+    : req.body.answers && typeof req.body.answers === "object"
+      ? req.body.answers
+      : {};
+
+  if (finishAttemptIfExpired(store, attempt, { ...(attempt.answers || {}), ...incomingAnswers })) {
     await persistAttemptChange(store, attempt);
     return res.status(409).json({ message: "Waktu ujian sudah berakhir. Jawaban terakhir sudah disubmit otomatis.", attempt });
   }
 
-  attempt.answers = { ...(attempt.answers || {}), ...(req.body.answers || {}) };
+  attempt.answers = { ...(attempt.answers || {}), ...incomingAnswers };
   attempt.status = "in_progress";
   attempt.updatedAt = new Date().toISOString();
-  await persistAttemptChange(store, attempt);
+  await persistAttemptChange(store, attempt, { invalidateCache: false });
   res.json(attempt);
 });
 
@@ -2133,6 +2531,46 @@ app.post("/api/attempts/:id/admin-finish", allowRoles("admin", "pengawas"), asyn
   res.json(attempt);
 });
 
+app.post("/api/attempts/admin-finish-bulk", allowRoles("admin", "pengawas"), async (req, res) => {
+  const store = await readStore();
+  const attemptIds = Array.isArray(req.body.attemptIds) ? [...new Set(req.body.attemptIds.map((id) => String(id)))] : [];
+  const reason = String(req.body.reason || "").trim().slice(0, 300);
+  const password = String(req.body.password || "");
+  if (!attemptIds.length) return res.status(400).json({ message: "Tidak ada peserta yang dipilih." });
+  if (!reason) return res.status(400).json({ message: "Alasan force selesai wajib diisi." });
+  if (!await requireCurrentUserPassword(store, req, password)) return res.status(403).json({ message: "Password akun salah." });
+
+  const attemptsToFinish = store.attempts.filter((attempt) => attemptIds.includes(attempt.id) && attempt.status === "in_progress");
+  const violationsToSave = [];
+  for (const attempt of attemptsToFinish) {
+    finishAttempt(store, attempt);
+    const { violation } = addViolationLog(store, {
+      studentId: attempt.studentId,
+      examId: attempt.examId,
+      type: "admin_force_finish_bulk",
+      level: "critical",
+      message: `Ujian dipaksa selesai massal oleh ${req.user.name}. Alasan: ${reason}`,
+      metadata: { attemptId: attempt.id, reason, forcedBy: req.user.id }
+    });
+    violationsToSave.push(violation);
+  }
+  const auditLog = addAuditLog(store, req, "force_finish_attempt_bulk", "attempt", "bulk", `${attemptsToFinish.length} ujian peserta dipaksa selesai massal. Alasan: ${reason}`, {
+    requested: attemptIds.length,
+    finished: attemptsToFinish.length,
+    skipped: attemptIds.length - attemptsToFinish.length,
+    reason,
+    attemptIds
+  });
+
+  if (postgresEnabled) {
+    await persistAttemptAndViolationChanges(store, attemptsToFinish, violationsToSave);
+    await persistAuditLogChange(store, auditLog);
+  } else {
+    await writeStore(store);
+  }
+  res.json({ ok: true, requested: attemptIds.length, finished: attemptsToFinish.length, skipped: attemptIds.length - attemptsToFinish.length });
+});
+
 app.post("/api/attempts/:id/heartbeat", allowRoles("admin", "siswa"), async (req, res) => {
   const store = await readStore();
   const attempt = store.attempts.find((item) => item.id === req.params.id);
@@ -2160,7 +2598,7 @@ app.post("/api/attempts/:id/heartbeat", allowRoles("admin", "siswa"), async (req
     });
     violationToSave = violation;
   }
-  await persistAttemptAndViolationChanges(store, [attempt], violationToSave ? [violationToSave] : []);
+  await persistAttemptAndViolationChanges(store, [attempt], violationToSave ? [violationToSave] : [], { invalidateCache: false });
   res.json({ ok: true, updatedAt: attempt.updatedAt, submitted: false, attempt });
 });
 
@@ -2201,7 +2639,7 @@ app.post("/api/client-events", allowRoles("siswa"), async (req, res) => {
     });
     violationToSave = violation;
   }
-  await persistAttemptAndViolationChanges(store, attemptsToSave, violationToSave ? [violationToSave] : []);
+  await persistAttemptAndViolationChanges(store, attemptsToSave, violationToSave ? [violationToSave] : [], { invalidateCache: false });
   res.json({ ok: true, attemptId: attempt.id, examId: attempt.examId });
 });
 
@@ -2245,7 +2683,7 @@ app.post("/api/client-events/batch", allowRoles("siswa"), async (req, res) => {
     recorded.push({ id: violation.id, event, attemptId: attempt.id, examId: attempt.examId });
   }
 
-  await persistAttemptAndViolationChanges(store, attemptsToSave, violationsToSave);
+  await persistAttemptAndViolationChanges(store, attemptsToSave, violationsToSave, { invalidateCache: false });
   res.json({ ok: true, recorded: recorded.length, events: recorded });
 });
 

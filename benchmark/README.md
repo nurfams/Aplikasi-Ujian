@@ -157,6 +157,71 @@ k6 run benchmark/exam-flow.js
 
 Mode ini lebih berat karena peserta virtual akan mengulang alur selama durasi test. Gunakan setelah mode `once` sudah stabil.
 
+## Benchmark 3: Simulasi Ujian Nyata
+
+Gunakan `real-exam-flow.js` untuk simulasi yang lebih mirip kondisi ujian sebenarnya:
+
+1. peserta login 1 kali
+2. membuka portal 1 kali
+3. mulai ujian 1 kali
+4. selama durasi ujian hanya mengirim autosave, heartbeat, dan fetch soal bertahap
+5. sebagian kecil peserta bisa disimulasikan login ulang karena koneksi/app tertutup
+
+Tes 217 peserta selama 30 menit:
+
+```powershell
+$env:TARGET_VUS="217"
+$env:EXAM_DURATION="30m"
+$env:HEARTBEAT_INTERVAL_SECONDS="20"
+$env:ANSWER_INTERVAL_SECONDS="15"
+$env:RELOGIN_PERCENT="5"
+$env:SUBMIT="false"
+k6 run benchmark/real-exam-flow.js
+```
+
+Jika terminal sedang berada di folder `benchmark`:
+
+```powershell
+$env:TARGET_VUS="217"
+$env:EXAM_DURATION="30m"
+k6 run real-exam-flow.js
+```
+
+Tes 217 peserta selama 90 menit:
+
+```powershell
+$env:TARGET_VUS="217"
+$env:EXAM_DURATION="90m"
+$env:HEARTBEAT_INTERVAL_SECONDS="20"
+$env:ANSWER_INTERVAL_SECONDS="20"
+$env:RELOGIN_PERCENT="5"
+k6 run benchmark/real-exam-flow.js
+```
+
+Jika ujian membutuhkan token:
+
+```powershell
+$env:EXAM_TOKEN="AB12"
+k6 run benchmark/real-exam-flow.js
+```
+
+Variabel penting:
+
+- `TARGET_VUS`: jumlah peserta virtual.
+- `EXAM_DURATION`: lama simulasi ujian, contoh `30m` atau `90m`.
+- `HEARTBEAT_INTERVAL_SECONDS`: jarak heartbeat peserta.
+- `ANSWER_INTERVAL_SECONDS`: jarak peserta menjawab soal.
+- `QUESTION_PREFETCH`: jumlah soal berikutnya yang ikut diambil saat progressive loading.
+- `RELOGIN_PERCENT`: persentase peserta yang login ulang sekali di tengah ujian.
+- `SUBMIT`: isi `true` kalau ingin peserta submit di akhir simulasi.
+
+Untuk uji realistis, `students.csv` sebaiknya berisi jumlah akun yang sama dengan `TARGET_VUS`:
+
+```powershell
+$env:LIMIT="217"
+node benchmark/export-students.mjs
+```
+
 ## Simulasi Bertahap
 
 Mulai dari kecil:

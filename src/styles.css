@@ -509,6 +509,59 @@ code {
   margin-bottom: 14px;
 }
 
+.bulk-action-bar {
+  align-items: center;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 12px;
+}
+
+.bulk-action-bar .inline-check {
+  background: #f8fafc;
+  border: 1px solid #dbe5f0;
+  border-radius: 7px;
+  min-height: 40px;
+  padding: 0 12px;
+}
+
+.monitoring-bulk-action-bar {
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+.monitoring-bulk-action-bar .inline-check,
+.monitoring-bulk-action-bar button {
+  border-radius: 6px;
+  font-size: 13px;
+  min-height: 34px;
+  padding: 0 10px;
+}
+
+.monitoring-bulk-action-bar .inline-check {
+  gap: 7px;
+}
+
+.monitoring-bulk-action-bar .inline-check input {
+  height: 15px;
+  margin: 0;
+  min-height: 0;
+  padding: 0;
+  width: 15px;
+}
+
+.monitoring-bulk-action-bar button svg {
+  height: 15px;
+  width: 15px;
+}
+
+.danger-confirm-form {
+  gap: 12px;
+}
+
 .panel-toolbar .panel-title {
   margin-bottom: 0;
 }
@@ -749,14 +802,22 @@ code {
   gap: 4px;
 }
 
-.exam-weight-cell small {
+.exam-weight-cell small,
+.exam-payload-cell small {
   color: #64748b;
   font-size: 11px;
   font-weight: 800;
   white-space: nowrap;
 }
 
-.weight-status-pill {
+.exam-payload-cell {
+  align-items: flex-start;
+  display: grid;
+  gap: 4px;
+}
+
+.weight-status-pill,
+.payload-status-pill {
   align-items: center;
   border: 1px solid #cbd5e1;
   border-radius: 999px;
@@ -769,13 +830,15 @@ code {
   white-space: nowrap;
 }
 
-.weight-status-pill.complete {
+.weight-status-pill.complete,
+.payload-status-pill.small {
   background: #dcfce7;
   border-color: #86efac;
   color: #166534;
 }
 
-.weight-status-pill.warning {
+.weight-status-pill.warning,
+.payload-status-pill.medium {
   background: #fff7ed;
   border-color: #fdba74;
   color: #9a3412;
@@ -785,6 +848,12 @@ code {
   background: #f1f5f9;
   border-color: #cbd5e1;
   color: #64748b;
+}
+
+.payload-status-pill.large {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #991b1b;
 }
 
 .exam-row-actions {
@@ -2455,40 +2524,53 @@ th {
 
 .monitoring-active-table th:nth-child(1),
 .monitoring-active-table td:nth-child(1) {
-  width: 19%;
+  text-align: center;
+  width: 5%;
 }
 
 .monitoring-active-table th:nth-child(2),
 .monitoring-active-table td:nth-child(2) {
-  width: 7%;
+  width: 18%;
 }
 
 .monitoring-active-table th:nth-child(3),
 .monitoring-active-table td:nth-child(3) {
-  width: 24%;
+  width: 7%;
 }
 
 .monitoring-active-table th:nth-child(4),
 .monitoring-active-table td:nth-child(4) {
-  width: 13%;
+  width: 24%;
 }
 
 .monitoring-active-table th:nth-child(5),
 .monitoring-active-table td:nth-child(5) {
+  width: 13%;
+}
+
+.monitoring-active-table th:nth-child(6),
+.monitoring-active-table td:nth-child(6) {
   color: #475569;
   font-size: 13px;
   line-height: 1.35;
   width: 17%;
 }
 
-.monitoring-active-table th:nth-child(6),
-.monitoring-active-table td:nth-child(6) {
-  width: 10%;
-}
-
 .monitoring-active-table th:nth-child(7),
 .monitoring-active-table td:nth-child(7) {
   width: 10%;
+}
+
+.monitoring-active-table th:nth-child(8),
+.monitoring-active-table td:nth-child(8) {
+  width: 6%;
+}
+
+.monitoring-row-checkbox {
+  height: 16px;
+  min-height: auto;
+  padding: 0;
+  width: 16px;
 }
 
 .monitoring-active-table .status-pill {
@@ -2999,6 +3081,36 @@ th {
   line-height: var(--exam-line-height, 1.55);
 }
 
+.payload-mode-note {
+  align-items: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 900;
+  margin-top: 4px;
+  min-height: 24px;
+  padding: 0 9px;
+}
+
+.payload-mode-note.small {
+  background: #dcfce7;
+  border-color: #86efac;
+  color: #166534;
+}
+
+.payload-mode-note.medium {
+  background: #fff7ed;
+  border-color: #fdba74;
+  color: #9a3412;
+}
+
+.payload-mode-note.large {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #991b1b;
+}
+
 .font-size-picker {
   display: grid;
   gap: 14px;
@@ -3351,30 +3463,34 @@ th {
   }
 
   .monitoring-active-table td:nth-child(1)::before {
-    content: "Peserta";
+    content: "Pilih";
   }
 
   .monitoring-active-table td:nth-child(2)::before {
-    content: "Kelas";
+    content: "Peserta";
   }
 
   .monitoring-active-table td:nth-child(3)::before {
-    content: "Ujian";
+    content: "Kelas";
   }
 
   .monitoring-active-table td:nth-child(4)::before {
-    content: "Status";
+    content: "Ujian";
   }
 
   .monitoring-active-table td:nth-child(5)::before {
-    content: "Aktivitas";
+    content: "Status";
   }
 
   .monitoring-active-table td:nth-child(6)::before {
-    content: "Pelanggaran";
+    content: "Aktivitas";
   }
 
   .monitoring-active-table td:nth-child(7)::before {
+    content: "Pelanggaran";
+  }
+
+  .monitoring-active-table td:nth-child(8)::before {
     content: "Aksi";
   }
 

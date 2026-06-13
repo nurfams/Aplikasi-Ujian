@@ -32,6 +32,7 @@ import java.net.URL
 import java.util.concurrent.Executors
 import org.json.JSONArray
 import org.json.JSONObject
+import org.json.JSONTokener
 
 class OverlayExamService : Service() {
     private var windowManager: WindowManager? = null
@@ -513,6 +514,109 @@ class OverlayExamService : Service() {
         return "android-${System.currentTimeMillis()}-${(1000..9999).random()}"
     }
 
+    private fun answerQueuePrefs() = getSharedPreferences(ANSWER_QUEUE_PREFS, Context.MODE_PRIVATE)
+
+    private fun answerQueueKey(attemptId: String): String {
+        return "answers_$attemptId"
+    }
+
+    private fun readAnswerQueue(attemptId: String?): JSONObject {
+        val id = attemptId.orEmpty()
+        if (id.isBlank()) return JSONObject()
+        return try {
+            JSONObject(answerQueuePrefs().getString(answerQueueKey(id), "{}") ?: "{}")
+        } catch (_: Exception) {
+            JSONObject()
+        }
+    }
+
+    private fun writeAnswerQueue(attemptId: String?, queue: JSONObject) {
+        val id = attemptId.orEmpty()
+        if (id.isBlank()) return
+        answerQueuePrefs().edit().putString(answerQueueKey(id), queue.toString()).apply()
+    }
+
+    private fun jsonValueFromString(raw: String?): Any {
+        return try {
+            JSONTokener(raw ?: "null").nextValue()
+        } catch (_: Exception) {
+            raw.orEmpty()
+        }
+    }
+
+    private fun jsonStringFromValue(value: Any?): String {
+        return when (value) {
+            null, JSONObject.NULL -> "null"
+            is JSONObject, is JSONArray -> value.toString()
+            is String -> JSONObject.quote(value)
+            else -> value.toString()
+        }
+    }
+
+    private fun putJsonValue(target: JSONObject, key: String, value: Any?) {
+        when (value) {
+            null -> target.put(key, JSONObject.NULL)
+            is Boolean -> target.put(key, value)
+            is Int -> target.put(key, value)
+            is Long -> target.put(key, value)
+            is Double -> target.put(key, value)
+            is JSONObject -> target.put(key, value)
+            is JSONArray -> target.put(key, value)
+            else -> target.put(key, value.toString())
+        }
+    }
+
+    private fun queueAnswerLocally(attemptId: String?, questionId: String?, answerJson: String?, updatedAt: String?) {
+        val id = attemptId.orEmpty()
+        val qid = questionId.orEmpty()
+        if (id.isBlank() || qid.isBlank()) return
+        val queue = readAnswerQueue(id)
+        val item = JSONObject()
+            .put("answerJson", answerJson ?: "null")
+            .put("updatedAt", updatedAt?.toLongOrNull() ?: System.currentTimeMillis())
+        queue.put(qid, item)
+        writeAnswerQueue(id, queue)
+    }
+
+    private fun pendingAnswersForWeb(attemptId: String?): String {
+        val queue = readAnswerQueue(attemptId)
+        val answers = JSONObject()
+        val keys = queue.keys()
+        while (keys.hasNext()) {
+            val questionId = keys.next()
+            val item = queue.optJSONObject(questionId)
+            putJsonValue(answers, questionId, jsonValueFromString(item?.optString("answerJson", "null")))
+        }
+        return answers.toString()
+    }
+
+    private fun replaceAnswerQueue(attemptId: String?, answersJson: String?) {
+        val id = attemptId.orEmpty()
+        if (id.isBlank()) return
+        val answers = try {
+            JSONObject(answersJson ?: "{}")
+        } catch (_: Exception) {
+            JSONObject()
+        }
+        val queue = JSONObject()
+        val keys = answers.keys()
+        val now = System.currentTimeMillis()
+        while (keys.hasNext()) {
+            val questionId = keys.next()
+            val item = JSONObject()
+                .put("answerJson", jsonStringFromValue(answers.opt(questionId)))
+                .put("updatedAt", now)
+            queue.put(questionId, item)
+        }
+        writeAnswerQueue(id, queue)
+    }
+
+    private fun clearAnswerQueue(attemptId: String?) {
+        val id = attemptId.orEmpty()
+        if (id.isBlank()) return
+        answerQueuePrefs().edit().remove(answerQueueKey(id)).apply()
+    }
+
     private fun removeOverlay() {
         webView?.let { view ->
             try {
@@ -557,6 +661,26 @@ class OverlayExamService : Service() {
             normalStop = true
             stopSelf()
         }
+
+        @JavascriptInterface
+        fun savePendingAnswer(attemptId: String?, questionId: String?, answerJson: String?, updatedAt: String?) {
+            queueAnswerLocally(attemptId, questionId, answerJson, updatedAt)
+        }
+
+        @JavascriptInterface
+        fun getPendingAnswers(attemptId: String?): String {
+            return pendingAnswersForWeb(attemptId)
+        }
+
+        @JavascriptInterface
+        fun replacePendingAnswers(attemptId: String?, answersJson: String?) {
+            replaceAnswerQueue(attemptId, answersJson)
+        }
+
+        @JavascriptInterface
+        fun clearPendingAnswers(attemptId: String?) {
+            clearAnswerQueue(attemptId)
+        }
     }
 
     companion object {
@@ -569,5 +693,6 @@ class OverlayExamService : Service() {
         private const val EVENT_QUEUE_PREFS = "cbt_exam_browser_event_queue"
         private const val EVENT_QUEUE_KEY = "events"
         private const val MAX_QUEUED_EVENTS = 200
+        private const val ANSWER_QUEUE_PREFS = "cbt_exam_browser_answer_queue"
     }
 }
