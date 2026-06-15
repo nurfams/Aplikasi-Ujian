@@ -82,13 +82,9 @@ android-exam-browser/
 
 Buka folder tersebut dengan Android Studio untuk build APK. Konfigurasi alamat server ada di `android-exam-browser/app/build.gradle.kts`.
 
-## Akun demo
+## Catatan akun produksi
 
-```text
-Admin  : admin / admin123
-Guru   : guru_informatika / guru123
-Siswa  : 10676 / 10676
-```
+Untuk mode deployment, jangan tampilkan atau gunakan credential demo/default. Ganti password admin awal, buat akun guru/siswa resmi, dan simpan credential hanya di dokumen internal sekolah.
 
 ## Fitur tahap 1
 

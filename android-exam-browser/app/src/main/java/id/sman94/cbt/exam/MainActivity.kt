@@ -10,12 +10,10 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.text.InputType
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
-import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -43,10 +41,7 @@ class MainActivity : Activity() {
     private var cbtApiBaseUrl: String = ""
     private var pendingBaseUrl: String = ""
     private var pendingApiBaseUrl: String = ""
-
-    private val settings by lazy {
-        getSharedPreferences("cbt_exam_browser_settings", MODE_PRIVATE)
-    }
+    private var loginExitBar: LinearLayout? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -58,7 +53,7 @@ class MainActivity : Activity() {
         if (intent?.getBooleanExtra(EXTRA_OVERLAY_PERMISSION_LOST, false) == true) {
             showOverlayPermissionLostScreen()
         } else {
-            showServerSetup()
+            openConfiguredExamClient()
         }
     }
 
@@ -110,6 +105,24 @@ class MainActivity : Activity() {
         return super.onKeyDown(keyCode, event)
     }
 
+    private fun configuredBaseUrl(): String {
+        return BuildConfig.CBT_BASE_URL.trim().trimEnd('/') + "/"
+    }
+
+    private fun configuredApiBaseUrl(): String {
+        return BuildConfig.CBT_API_BASE_URL.trim().trimEnd('/')
+    }
+
+    private fun openConfiguredExamClient() {
+        val baseUrl = configuredBaseUrl()
+        val apiBaseUrl = configuredApiBaseUrl()
+        if (BuildConfig.REQUIRE_OVERLAY && !hasOverlayPermission()) {
+            showOverlayPermissionSetup(baseUrl, apiBaseUrl)
+            return
+        }
+        launchExamClient(baseUrl, apiBaseUrl)
+    }
+
     private fun enterImmersiveMode() {
         window.decorView.systemUiVisibility = (
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
@@ -119,93 +132,6 @@ class MainActivity : Activity() {
                 or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                 or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
             )
-    }
-
-    private fun showServerSetup() {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(238, 242, 246))
-            setPadding(dp(22), dp(22), dp(22), dp(22))
-        }
-        val scrollView = ScrollView(this).apply {
-            addView(root)
-        }
-
-        root.addView(TextView(this).apply {
-            text = "CBT SMAN 94"
-            textSize = 28f
-            setTextColor(Color.rgb(15, 23, 42))
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-        })
-        root.addView(TextView(this).apply {
-            text = "Setting Server Uji Coba - Mode ${BuildConfig.SECURITY_MODE_LABEL}"
-            textSize = 18f
-            setTextColor(Color.rgb(71, 85, 105))
-            setPadding(0, dp(4), 0, dp(18))
-        })
-
-        root.addView(TextView(this).apply {
-            text = "Isi IP laptop/server yang sedang menjalankan web CBT. Contoh: 192.168.1.3"
-            textSize = 15f
-            setTextColor(Color.rgb(51, 65, 85))
-            setPadding(0, 0, 0, dp(18))
-        })
-
-        val savedHost = settings.getString("server_host", "") ?: ""
-        val savedWebPort = settings.getString("web_port", "5173") ?: "5173"
-        val savedApiPort = settings.getString("api_port", "4100") ?: "4100"
-        val hostInput = createInput("IP laptop/server", if (savedHost.isNotBlank()) savedHost else "")
-        val webPortInput = createInput("Port web", savedWebPort, InputType.TYPE_CLASS_NUMBER)
-        val apiPortInput = createInput("Port API", savedApiPort, InputType.TYPE_CLASS_NUMBER)
-
-        root.addView(createLabel("Alamat IP / URL Server"))
-        root.addView(hostInput)
-        root.addView(createLabel("Port Web"))
-        root.addView(webPortInput)
-        root.addView(createLabel("Port API"))
-        root.addView(apiPortInput)
-
-        val buttonRow = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(18), 0, 0)
-        }
-        buttonRow.addView(Button(this).apply {
-            text = "Simpan & Masuk Ujian"
-            textSize = 16f
-            setOnClickListener {
-                val config = buildServerConfig(
-                    hostInput.text.toString(),
-                    webPortInput.text.toString(),
-                    apiPortInput.text.toString()
-                )
-                if (config == null) {
-                    Toast.makeText(this@MainActivity, "Alamat server belum benar.", Toast.LENGTH_LONG).show()
-                    return@setOnClickListener
-                }
-                settings.edit()
-                    .putString("server_host", config.hostLabel)
-                    .putString("web_port", config.webPort.toString())
-                    .putString("api_port", config.apiPort.toString())
-                    .apply()
-                if (BuildConfig.REQUIRE_OVERLAY && !hasOverlayPermission()) {
-                    showOverlayPermissionSetup(config.baseUrl, config.apiBaseUrl)
-                    return@setOnClickListener
-                }
-                launchExamClient(config.baseUrl, config.apiBaseUrl)
-            }
-        })
-        buttonRow.addView(Button(this).apply {
-            text = "Reset Form"
-            textSize = 16f
-            setOnClickListener {
-                hostInput.setText("")
-                webPortInput.setText("5173")
-                apiPortInput.setText("4100")
-            }
-        })
-        root.addView(buttonRow)
-
-        setContentView(scrollView)
     }
 
     private fun showOverlayPermissionSetup(baseUrl: String, apiBaseUrl: String) {
@@ -255,12 +181,19 @@ class MainActivity : Activity() {
             }
         })
         root.addView(Button(this).apply {
-            text = "Kembali ke Setting Server"
+            text = "Coba Lagi"
             textSize = 16f
             setOnClickListener {
                 pendingBaseUrl = ""
                 pendingApiBaseUrl = ""
-                showServerSetup()
+                openConfiguredExamClient()
+            }
+        })
+        root.addView(Button(this).apply {
+            text = "Keluar Aplikasi"
+            textSize = 16f
+            setOnClickListener {
+                finishAndRemoveTask()
             }
         })
         setContentView(scrollView)
@@ -297,10 +230,17 @@ class MainActivity : Activity() {
             }
         })
         root.addView(Button(this).apply {
-            text = "Kembali ke Setting Server"
+            text = "Coba Lagi"
             textSize = 16f
             setOnClickListener {
-                showServerSetup()
+                openConfiguredExamClient()
+            }
+        })
+        root.addView(Button(this).apply {
+            text = "Keluar Aplikasi"
+            textSize = 16f
+            setOnClickListener {
+                finishAndRemoveTask()
             }
         })
         setContentView(scrollView)
@@ -346,19 +286,7 @@ class MainActivity : Activity() {
             text = "Tampilkan Ulang Overlay"
             textSize = 16f
             setOnClickListener {
-                val savedHost = settings.getString("server_host", "").orEmpty()
-                val savedWebPort = settings.getString("web_port", "5173").orEmpty()
-                val savedApiPort = settings.getString("api_port", "4100").orEmpty()
-                val config = buildServerConfig(savedHost, savedWebPort, savedApiPort)
-                if (config != null) startOverlayExam(config.baseUrl, config.apiBaseUrl)
-            }
-        })
-        root.addView(Button(this).apply {
-            text = "Kembali ke Setting Server"
-            textSize = 16f
-            setOnClickListener {
-                stopService(Intent(this@MainActivity, OverlayExamService::class.java))
-                showServerSetup()
+                startOverlayExam(configuredBaseUrl(), configuredApiBaseUrl())
             }
         })
         setContentView(scrollView)
@@ -374,7 +302,24 @@ class MainActivity : Activity() {
         val browser = WebView(this)
         webView = browser
         browser.setBackgroundColor(Color.rgb(238, 242, 246))
-        setContentView(browser)
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.rgb(238, 242, 246))
+        }
+        loginExitBar = createLoginExitBar {
+            finishAndRemoveTask()
+        }
+        root.addView(loginExitBar, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            0,
+            1f
+        ))
+        root.addView(browser, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            0,
+            4f
+        ))
+        setContentView(root)
 
         browser.settings.javaScriptEnabled = true
         browser.settings.domStorageEnabled = true
@@ -394,6 +339,41 @@ class MainActivity : Activity() {
 
         enterImmersiveMode()
         browser.loadUrl(baseUrl)
+    }
+
+    private fun createLoginExitBar(onExit: () -> Unit): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.rgb(15, 23, 42))
+            setPadding(dp(18), dp(18), dp(18), dp(12))
+            gravity = android.view.Gravity.CENTER
+            addView(TextView(this@MainActivity).apply {
+                text = "CBT SMAN 94"
+                textSize = 18f
+                setTextColor(Color.WHITE)
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = "Halaman login peserta"
+                textSize = 13f
+                setTextColor(Color.rgb(203, 213, 225))
+                setPadding(0, dp(2), 0, dp(10))
+            })
+            addView(Button(this@MainActivity).apply {
+                text = "Keluar Aplikasi"
+                textSize = 16f
+                setOnClickListener { onExit() }
+            }, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(48)
+            ))
+        }
+    }
+
+    private fun setLoginExitBarVisible(visible: Boolean) {
+        mainHandler.post {
+            loginExitBar?.visibility = if (visible) View.VISIBLE else View.GONE
+        }
     }
 
     private fun isAllowedUrl(uri: Uri): Boolean {
@@ -420,10 +400,51 @@ class MainActivity : Activity() {
               function rememberSession() {
                 try {
                   const raw = localStorage.getItem("cbt_sman94_session");
-                  if (!raw) return;
+                  if (!raw) {
+                    if (window.CBTExamClient && window.CBTExamClient.setLoginExitVisible) {
+                      window.CBTExamClient.setLoginExitVisible(true);
+                    }
+                    return;
+                  }
                   const parsed = JSON.parse(raw);
+                  if (parsed && parsed.user && parsed.user.role && parsed.user.role !== "siswa") {
+                    localStorage.removeItem("cbt_sman94_session");
+                    alert("Aplikasi Android hanya untuk peserta ujian.");
+                    window.location.reload();
+                    return;
+                  }
                   if (parsed && parsed.token && window.CBTExamClient) {
                     window.CBTExamClient.setAuthToken(parsed.token);
+                    window.CBTExamClient.setLoginExitVisible(false);
+                  }
+                } catch (err) {}
+              }
+              function addAndroidExitButton() {
+                try {
+                  if (localStorage.getItem("cbt_sman94_session")) return;
+                  const panel = document.querySelector(".login-panel");
+                  if (!panel || document.getElementById("android-exam-exit-button")) return;
+                  const button = document.createElement("button");
+                  button.id = "android-exam-exit-button";
+                  button.type = "button";
+                  button.textContent = "Keluar Aplikasi";
+                  button.className = "ghost-button android-exam-exit-button";
+                  button.style.marginTop = "12px";
+                  button.style.width = "100%";
+                  button.addEventListener("click", function() {
+                    if (window.CBTExamClient && window.CBTExamClient.exitApp) {
+                      window.CBTExamClient.exitApp();
+                    }
+                  });
+                  panel.appendChild(button);
+                } catch (err) {}
+              }
+              function rejectNonStudentLogin(data) {
+                try {
+                  if (data && data.user && data.user.role && data.user.role !== "siswa") {
+                    localStorage.removeItem("cbt_sman94_session");
+                    alert("Aplikasi Android hanya untuk peserta ujian. Silakan login dari browser admin/guru.");
+                    window.location.reload();
                   }
                 } catch (err) {}
               }
@@ -441,6 +462,12 @@ class MainActivity : Activity() {
                     if (key === "cbt_sman94_session") rememberSessionSoon();
                     return result;
                   };
+                  const originalRemoveItem = Storage.prototype.removeItem;
+                  Storage.prototype.removeItem = function(key) {
+                    const result = originalRemoveItem.apply(this, arguments);
+                    if (key === "cbt_sman94_session") rememberSessionSoon();
+                    return result;
+                  };
                 }
               } catch (err) {}
               const originalFetch = window.fetch;
@@ -453,6 +480,9 @@ class MainActivity : Activity() {
                 const response = await originalFetch(input, init);
                 try {
                   rememberSessionSoon();
+                  if (url.indexOf("/login") !== -1) {
+                    response.clone().json().then(rejectNonStudentLogin).catch(function() {});
+                  }
                   if (url.indexOf("/attempts/start") !== -1) {
                     response.clone().json().then(function(data) {
                       if (data && data.attempt && data.attempt.id && window.CBTExamClient) {
@@ -462,6 +492,9 @@ class MainActivity : Activity() {
                   }
                   if (url.indexOf("/submit") !== -1 && window.CBTExamClient) {
                     window.CBTExamClient.clearActiveAttempt();
+                  }
+                  if (url.indexOf("/logout") !== -1 && window.CBTExamClient) {
+                    window.CBTExamClient.setLoginExitVisible(true);
                   }
                 } catch (err) {}
                 return response;
@@ -488,7 +521,12 @@ class MainActivity : Activity() {
               };
               document.addEventListener("contextmenu", function(event) { event.preventDefault(); }, true);
               document.addEventListener("selectstart", function(event) { event.preventDefault(); }, true);
+              try {
+                const observer = new MutationObserver(function() { addAndroidExitButton(); });
+                observer.observe(document.documentElement, { childList: true, subtree: true });
+              } catch (err) {}
               rememberSessionSoon();
+              addAndroidExitButton();
             })();
         """.trimIndent()
         webView?.evaluateJavascript(script, null)
@@ -757,96 +795,38 @@ class MainActivity : Activity() {
         return !BuildConfig.REQUIRE_OVERLAY || Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)
     }
 
-    private fun createLabel(textValue: String): TextView {
-        return TextView(this).apply {
-            text = textValue
-            textSize = 14f
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(30, 41, 59))
-            setPadding(0, dp(10), 0, dp(6))
-        }
-    }
-
-    private fun createInput(hintValue: String, value: String, inputTypeValue: Int = InputType.TYPE_CLASS_TEXT): EditText {
-        return EditText(this).apply {
-            hint = hintValue
-            setText(value)
-            setSingleLine(true)
-            inputType = inputTypeValue
-            textSize = 16f
-            setPadding(dp(14), 0, dp(14), 0)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(54)
-            )
-        }
-    }
-
-    private fun buildServerConfig(rawHost: String, rawWebPort: String, rawApiPort: String): ServerConfig? {
-        val apiPort = rawApiPort.trim().toIntOrNull()?.takeIf { it in 1..65535 } ?: return null
-        var webPort = rawWebPort.trim().toIntOrNull()?.takeIf { it in 1..65535 } ?: return null
-        var hostLabel = rawHost.trim().trimEnd('/')
-        if (hostLabel.isBlank()) return null
-
-        if (hostLabel.startsWith("http://") || hostLabel.startsWith("https://")) {
-            val parsed = Uri.parse(hostLabel)
-            val scheme = parsed.scheme ?: "http"
-            val host = parsed.host ?: return null
-            if (parsed.port > 0) webPort = parsed.port
-            hostLabel = host
-            return ServerConfig(
-                hostLabel = hostLabel,
-                webPort = webPort,
-                apiPort = apiPort,
-                baseUrl = "$scheme://$host:$webPort/",
-                apiBaseUrl = "$scheme://$host:$apiPort/api"
-            )
-        }
-
-        hostLabel = hostLabel.substringBefore("/")
-        if (hostLabel.contains(":")) {
-            val parts = hostLabel.split(":", limit = 2)
-            hostLabel = parts[0]
-            webPort = parts.getOrNull(1)?.toIntOrNull()?.takeIf { it in 1..65535 } ?: webPort
-        }
-        if (hostLabel.isBlank()) return null
-        return ServerConfig(
-            hostLabel = hostLabel,
-            webPort = webPort,
-            apiPort = apiPort,
-            baseUrl = "http://$hostLabel:$webPort/",
-            apiBaseUrl = "http://$hostLabel:$apiPort/api"
-        )
-    }
-
     private fun dp(value: Int): Int {
         return (value * resources.displayMetrics.density).toInt()
     }
-
-    data class ServerConfig(
-        val hostLabel: String,
-        val webPort: Int,
-        val apiPort: Int,
-        val baseUrl: String,
-        val apiBaseUrl: String
-    )
 
     inner class ExamBridge {
         @JavascriptInterface
         fun setAuthToken(token: String?) {
             authToken = token.orEmpty()
+            setLoginExitBarVisible(authToken.isBlank())
             flushQueuedEvents()
+        }
+
+        @JavascriptInterface
+        fun setLoginExitVisible(visible: Boolean) {
+            if (activeAttemptId.isNotBlank() && visible) {
+                setLoginExitBarVisible(false)
+            } else {
+                setLoginExitBarVisible(visible)
+            }
         }
 
         @JavascriptInterface
         fun setActiveAttempt(attemptId: String?) {
             activeAttemptId = attemptId.orEmpty()
+            setLoginExitBarVisible(activeAttemptId.isBlank() && authToken.isBlank())
             flushQueuedEvents()
         }
 
         @JavascriptInterface
         fun clearActiveAttempt() {
             activeAttemptId = ""
+            setLoginExitBarVisible(authToken.isBlank())
         }
 
         @JavascriptInterface
@@ -867,6 +847,20 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun clearPendingAnswers(attemptId: String?) {
             clearAnswerQueue(attemptId)
+        }
+
+        @JavascriptInterface
+        fun exitApp() {
+            if (activeAttemptId.isNotBlank()) {
+                sendHeartbeat("android_exit_blocked", "Tombol keluar aplikasi ditekan saat ujian masih aktif dan diblokir.")
+                mainHandler.post {
+                    Toast.makeText(this@MainActivity, "Selesaikan atau logout ujian terlebih dahulu.", Toast.LENGTH_LONG).show()
+                }
+                return
+            }
+            mainHandler.post {
+                finishAndRemoveTask()
+            }
         }
     }
 

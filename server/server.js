@@ -1647,6 +1647,69 @@ app.get("/api/me", async (req, res) => {
   res.json({ user: req.user });
 });
 
+app.get("/api/admin-users", allowRoles("admin"), async (_req, res) => {
+  const store = await readStore();
+  res.json(store.users
+    .filter((user) => user.role === "admin")
+    .map(publicUser)
+    .sort((a, b) => a.name.localeCompare(b.name, "id")));
+});
+
+app.post("/api/admin-users", allowRoles("admin"), async (req, res) => {
+  const store = await readStore();
+  const name = String(req.body.name || "").trim();
+  const username = String(req.body.username || "").trim();
+  const password = String(req.body.password || "");
+  const currentPassword = String(req.body.currentPassword || "");
+  if (!name || !username || !password) {
+    return res.status(400).json({ message: "Nama, username, dan password admin wajib diisi." });
+  }
+  if (password.length < 8) {
+    return res.status(400).json({ message: "Password admin minimal 8 karakter." });
+  }
+  if (!await requireAdminPassword(store, req, currentPassword)) {
+    return res.status(403).json({ message: "Password admin saat ini salah." });
+  }
+  if (store.users.some((user) => user.username.toLowerCase() === username.toLowerCase())) {
+    return res.status(409).json({ message: "Username sudah digunakan akun lain." });
+  }
+  const admin = {
+    id: createId("u-admin"),
+    role: "admin",
+    name,
+    username,
+    password: hashPassword(password)
+  };
+  store.users.push(admin);
+  addAuditLog(store, req, "create_admin_user", "user", admin.id, `Admin baru ${name} dibuat.`, {
+    username
+  });
+  await writeStore(store);
+  res.status(201).json(publicUser(admin));
+});
+
+app.put("/api/admin-users/:id/password", allowRoles("admin"), async (req, res) => {
+  const store = await readStore();
+  const admin = store.users.find((user) => user.id === req.params.id && user.role === "admin");
+  if (!admin) return res.status(404).json({ message: "Admin tidak ditemukan." });
+  const currentPassword = String(req.body.currentPassword || "");
+  const newPassword = String(req.body.newPassword || "");
+  if (newPassword.length < 8) {
+    return res.status(400).json({ message: "Password baru minimal 8 karakter." });
+  }
+  if (!await requireAdminPassword(store, req, currentPassword)) {
+    return res.status(403).json({ message: "Password admin saat ini salah." });
+  }
+  admin.password = hashPassword(newPassword);
+  store.sessions = (store.sessions || []).filter((session) => session.userId !== admin.id || session.id === req.activeSession?.id);
+  addAuditLog(store, req, "change_admin_password", "user", admin.id, `Password admin ${admin.name} diubah.`, {
+    username: admin.username,
+    selfChange: admin.id === req.user.id
+  });
+  await writeStore(store);
+  res.json(publicUser(admin));
+});
+
 app.post("/api/browser-access/authorize", allowRoles("siswa"), async (req, res) => {
   const store = await readStore();
   const activeSession = store.sessions.find((item) => item.id === req.activeSession?.id && item.userId === req.user.id);

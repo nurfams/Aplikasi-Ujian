@@ -21,7 +21,11 @@ import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
+import android.view.View
 import android.view.WindowManager
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -37,6 +41,8 @@ import org.json.JSONTokener
 class OverlayExamService : Service() {
     private var windowManager: WindowManager? = null
     private var webView: WebView? = null
+    private var overlayRootView: LinearLayout? = null
+    private var loginExitBar: LinearLayout? = null
     private var params: WindowManager.LayoutParams? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val executor = Executors.newSingleThreadExecutor()
@@ -95,6 +101,15 @@ class OverlayExamService : Service() {
         if (webView != null) return
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.rgb(238, 242, 246))
+        }
+        overlayRootView = root
+        loginExitBar = createLoginExitBar {
+            exitOverlayFromLogin()
+        }
+
         val browser = WebView(this)
         webView = browser
         browser.setBackgroundColor(Color.rgb(238, 242, 246))
@@ -138,8 +153,76 @@ class OverlayExamService : Service() {
             gravity = Gravity.CENTER
         }
 
-        windowManager?.addView(browser, params)
+        root.addView(
+            loginExitBar,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        )
+        root.addView(
+            browser,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                4f
+            )
+        )
+
+        windowManager?.addView(root, params)
         browser.loadUrl(cbtBaseUrl)
+    }
+
+    private fun createLoginExitBar(onExit: () -> Unit): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.rgb(15, 23, 42))
+            setPadding(dp(18), dp(18), dp(18), dp(12))
+            gravity = Gravity.CENTER
+            addView(TextView(this@OverlayExamService).apply {
+                text = "CBT SMAN 94"
+                textSize = 18f
+                setTextColor(Color.WHITE)
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            })
+            addView(TextView(this@OverlayExamService).apply {
+                text = "Halaman login peserta"
+                textSize = 13f
+                setTextColor(Color.rgb(203, 213, 225))
+                setPadding(0, dp(2), 0, dp(10))
+            })
+            addView(
+                Button(this@OverlayExamService).apply {
+                    text = "Keluar Aplikasi"
+                    textSize = 16f
+                    setOnClickListener { onExit() }
+                },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(48)
+                )
+            )
+        }
+    }
+
+    private fun setLoginExitBarVisible(visible: Boolean) {
+        mainHandler.post {
+            loginExitBar?.visibility = if (visible) View.VISIBLE else View.GONE
+        }
+    }
+
+    private fun exitOverlayFromLogin() {
+        if (activeAttemptId.isNotBlank()) {
+            sendHeartbeat(
+                "android_exit_blocked",
+                "Tombol keluar aplikasi ditekan saat ujian masih aktif dan diblokir.",
+                "warning"
+            )
+            return
+        }
+        normalStop = true
+        stopSelf()
     }
 
     private fun startExamForeground() {
@@ -205,10 +288,33 @@ class OverlayExamService : Service() {
               function rememberSession() {
                 try {
                   const raw = localStorage.getItem("cbt_sman94_session");
-                  if (!raw) return;
+                  if (!raw) {
+                    if (window.CBTExamClient && window.CBTExamClient.setLoginExitVisible) {
+                      window.CBTExamClient.setLoginExitVisible(true);
+                    }
+                    return;
+                  }
                   const parsed = JSON.parse(raw);
+                  if (parsed && parsed.user && parsed.user.role && parsed.user.role !== "siswa") {
+                    localStorage.removeItem("cbt_sman94_session");
+                    alert("Aplikasi Android hanya untuk peserta ujian.");
+                    window.location.reload();
+                    return;
+                  }
                   if (parsed && parsed.token && window.CBTExamClient) {
                     window.CBTExamClient.setAuthToken(parsed.token);
+                    if (window.CBTExamClient.setLoginExitVisible) {
+                      window.CBTExamClient.setLoginExitVisible(false);
+                    }
+                  }
+                } catch (err) {}
+              }
+              function rejectNonStudentLogin(data) {
+                try {
+                  if (data && data.user && data.user.role && data.user.role !== "siswa") {
+                    localStorage.removeItem("cbt_sman94_session");
+                    alert("Aplikasi Android hanya untuk peserta ujian.");
+                    window.location.reload();
                   }
                 } catch (err) {}
               }
@@ -226,6 +332,12 @@ class OverlayExamService : Service() {
                     if (key === "cbt_sman94_session") rememberSessionSoon();
                     return result;
                   };
+                  const originalRemoveItem = Storage.prototype.removeItem;
+                  Storage.prototype.removeItem = function(key) {
+                    const result = originalRemoveItem.apply(this, arguments);
+                    if (key === "cbt_sman94_session") rememberSessionSoon();
+                    return result;
+                  };
                 }
               } catch (err) {}
               const originalFetch = window.fetch;
@@ -238,6 +350,9 @@ class OverlayExamService : Service() {
                 const response = await originalFetch(input, init);
                 try {
                   rememberSessionSoon();
+                  if (url.indexOf("/login") !== -1) {
+                    response.clone().json().then(rejectNonStudentLogin).catch(function() {});
+                  }
                   if (url.indexOf("/attempts/start") !== -1) {
                     response.clone().json().then(function(data) {
                       if (data && data.attempt && data.attempt.id && window.CBTExamClient) {
@@ -252,7 +367,10 @@ class OverlayExamService : Service() {
                     window.CBTExamClient.clearActiveAttempt();
                   }
                   if (url.indexOf("/logout") !== -1 && window.CBTExamClient) {
-                    window.CBTExamClient.closeOverlay();
+                    window.CBTExamClient.setAuthToken("");
+                    if (window.CBTExamClient.setLoginExitVisible) {
+                      window.CBTExamClient.setLoginExitVisible(true);
+                    }
                   }
                 } catch (err) {}
                 return response;
@@ -622,14 +740,16 @@ class OverlayExamService : Service() {
     }
 
     private fun removeOverlay() {
-        webView?.let { view ->
+        overlayRootView?.let { view ->
             try {
                 windowManager?.removeView(view)
             } catch (_: Exception) {
             }
-            view.removeAllViews()
-            view.destroy()
         }
+        webView?.removeAllViews()
+        webView?.destroy()
+        overlayRootView = null
+        loginExitBar = null
         webView = null
     }
 
@@ -637,16 +757,32 @@ class OverlayExamService : Service() {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)
     }
 
+    private fun dp(value: Int): Int {
+        return (value * resources.displayMetrics.density).toInt()
+    }
+
     inner class OverlayBridge {
         @JavascriptInterface
         fun setAuthToken(token: String?) {
             authToken = token.orEmpty()
+            setLoginExitBarVisible(authToken.isBlank())
             flushQueuedEvents()
+        }
+
+        @JavascriptInterface
+        fun setLoginExitVisible(visible: Boolean) {
+            if (activeAttemptId.isNotBlank() && visible) {
+                setLoginExitBarVisible(false)
+            } else {
+                setLoginExitBarVisible(visible)
+            }
         }
 
         @JavascriptInterface
         fun setActiveAttempt(attemptId: String?) {
             activeAttemptId = attemptId.orEmpty()
+            normalStop = false
+            setLoginExitBarVisible(false)
             overlayPermissionLostReported = false
             lastNativeHeartbeatAt = 0L
             flushQueuedEvents()
@@ -663,7 +799,6 @@ class OverlayExamService : Service() {
             activeAttemptId = ""
             nativeHeartbeatEnabled = true
             normalStop = true
-            stopSelf()
         }
 
         @JavascriptInterface

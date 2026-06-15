@@ -1,4 +1,5 @@
 import "dotenv/config";
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,6 +8,37 @@ import { Client } from "pg";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
 const storePath = path.join(rootDir, "data", "cbt-store.json");
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const iterations = 120000;
+  const digest = crypto.pbkdf2Sync(String(password || ""), salt, iterations, 32, "sha256").toString("hex");
+  return `pbkdf2$${iterations}$${salt}$${digest}`;
+}
+
+function createEmptySeed() {
+  return {
+    users: [
+      {
+        id: "u-admin",
+        role: "admin",
+        name: "Admin Sekolah",
+        username: "admin",
+        password: hashPassword("admin123"),
+        subjects: []
+      }
+    ],
+    students: [],
+    exams: [],
+    questions: [],
+    attempts: [],
+    violations: [],
+    sessions: [],
+    auditLogs: [],
+    accessControl: {},
+    examSettings: {}
+  };
+}
 
 function quoteIdentifier(value) {
   return `"${String(value).replaceAll("\"", "\"\"")}"`;
@@ -38,8 +70,14 @@ async function ensureDatabase(databaseUrl) {
 }
 
 async function readJsonSeed() {
-  const raw = await fs.readFile(storePath, "utf8");
-  return JSON.parse(raw);
+  try {
+    const raw = await fs.readFile(storePath, "utf8");
+    return JSON.parse(raw);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    console.warn("Seed data/cbt-store.json tidak ditemukan. Database dibuat kosong dengan akun admin awal admin/admin123.");
+    return createEmptySeed();
+  }
 }
 
 async function main() {

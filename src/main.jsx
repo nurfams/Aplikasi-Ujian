@@ -447,6 +447,40 @@ function questionTypeLabel(type) {
   return QUESTION_TYPES.find((item) => item.value === type)?.label || "Pilihan Ganda";
 }
 
+function displayOptionLabel(index) {
+  return OPTION_KEYS[index] || String(index + 1);
+}
+
+function compareSortValues(leftValue, rightValue) {
+  const left = leftValue ?? "";
+  const right = rightValue ?? "";
+  if (typeof left === "number" && typeof right === "number") return left - right;
+  return String(left).localeCompare(String(right), "id", { numeric: true, sensitivity: "base" });
+}
+
+function applyTableSort(items, sort, resolvers) {
+  if (!sort?.key || !resolvers?.[sort.key]) return items;
+  const direction = sort.direction === "desc" ? -1 : 1;
+  return [...items].sort((left, right) => {
+    const result = compareSortValues(resolvers[sort.key](left), resolvers[sort.key](right));
+    return result * direction;
+  });
+}
+
+function toggleTableSort(current, key) {
+  if (current?.key !== key) return { key, direction: "asc" };
+  return { key, direction: current.direction === "asc" ? "desc" : "asc" };
+}
+
+function SortHeader({ sort, sortKey, onSort, children }) {
+  const active = sort?.key === sortKey;
+  return (
+    <button type="button" className={`table-sort-button${active ? " active" : ""}`} onClick={() => onSort(sortKey)}>
+      {children}{active ? ` ${sort.direction === "asc" ? "ASC" : "DESC"}` : ""}
+    </button>
+  );
+}
+
 async function compressImageFile(file, maxBytes = 500 * 1024, maxWidth = 1200) {
   if (!file.type.startsWith("image/")) throw new Error("File harus berupa gambar.");
   const dataUrl = await new Promise((resolve, reject) => {
@@ -875,7 +909,7 @@ function StatCard({ icon: Icon, label, value }) {
 }
 
 function Login({ onLogin }) {
-  const [form, setForm] = useState({ username: "admin", password: "admin123" });
+  const [form, setForm] = useState({ username: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -901,7 +935,7 @@ function Login({ onLogin }) {
           <div className="brand-mark"><ShieldCheck size={28} /></div>
           <div>
             <h1>CBT SMAN 94</h1>
-            <p>Fondasi aplikasi ujian tahap pertama</p>
+            <p>Masukkan username dan password akun ujian.</p>
           </div>
         </div>
         <form onSubmit={submit} className="login-form">
@@ -919,12 +953,6 @@ function Login({ onLogin }) {
             {loading ? "Memeriksa..." : "Masuk"}
           </button>
         </form>
-        <div className="demo-users">
-          <span>Demo:</span>
-          <code>admin/admin123</code>
-          <code>guru_informatika/guru123</code>
-          <code>10676/10676</code>
-        </div>
       </section>
     </main>
   );
@@ -1345,11 +1373,159 @@ function ExamSettingsPanel({ examSettings, onChanged }) {
   );
 }
 
+function AdminAccountsPanel() {
+  const emptyAddForm = { name: "", username: "", password: "", confirmPassword: "", currentPassword: "" };
+  const [admins, setAdmins] = useState([]);
+  const [addForm, setAddForm] = useState(emptyAddForm);
+  const [passwordForm, setPasswordForm] = useState({ adminId: "", newPassword: "", confirmPassword: "", currentPassword: "" });
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function loadAdmins() {
+    const data = await api("/admin-users");
+    setAdmins(data);
+    setPasswordForm((current) => ({
+      ...current,
+      adminId: current.adminId || data[0]?.id || ""
+    }));
+  }
+
+  useEffect(() => {
+    loadAdmins().catch((err) => setError(err.message));
+  }, []);
+
+  async function createAdmin(event) {
+    event.preventDefault();
+    setNotice("");
+    setError("");
+    if (addForm.password !== addForm.confirmPassword) {
+      setError("Konfirmasi password admin baru tidak sama.");
+      return;
+    }
+    setLoading(true);
+    try {
+      await api("/admin-users", {
+        method: "POST",
+        body: JSON.stringify({
+          name: addForm.name,
+          username: addForm.username,
+          password: addForm.password,
+          currentPassword: addForm.currentPassword
+        })
+      });
+      setAddForm(emptyAddForm);
+      setNotice("Admin baru berhasil dibuat.");
+      await loadAdmins();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function changePassword(event) {
+    event.preventDefault();
+    setNotice("");
+    setError("");
+    if (!passwordForm.adminId) {
+      setError("Pilih admin yang akan diubah passwordnya.");
+      return;
+    }
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setError("Konfirmasi password baru tidak sama.");
+      return;
+    }
+    setLoading(true);
+    try {
+      await api(`/admin-users/${passwordForm.adminId}/password`, {
+        method: "PUT",
+        body: JSON.stringify({
+          currentPassword: passwordForm.currentPassword,
+          newPassword: passwordForm.newPassword
+        })
+      });
+      setPasswordForm((current) => ({ ...current, newPassword: "", confirmPassword: "", currentPassword: "" }));
+      setNotice("Password admin berhasil diubah.");
+      await loadAdmins();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <section className="panel">
+      <PanelTitle icon={ShieldCheck} title="Akun Admin" />
+      <p className="muted">Gunakan panel ini untuk menambah admin baru atau mengganti password admin. Setiap perubahan wajib memasukkan password admin yang sedang login.</p>
+      {notice ? <div className="success-box">{notice}</div> : null}
+      {error ? <div className="error-box">{error}</div> : null}
+      <div className="admin-account-grid">
+        <form className="admin-account-card" onSubmit={createAdmin}>
+          <h3>Tambah Admin</h3>
+          <label>Nama admin
+            <input value={addForm.name} onChange={(event) => setAddForm({ ...addForm, name: event.target.value })} required />
+          </label>
+          <label>Username
+            <input value={addForm.username} onChange={(event) => setAddForm({ ...addForm, username: event.target.value })} required />
+          </label>
+          <label>Password admin baru
+            <input type="password" value={addForm.password} onChange={(event) => setAddForm({ ...addForm, password: event.target.value })} required minLength={8} />
+          </label>
+          <label>Konfirmasi password baru
+            <input type="password" value={addForm.confirmPassword} onChange={(event) => setAddForm({ ...addForm, confirmPassword: event.target.value })} required minLength={8} />
+          </label>
+          <label>Password admin saat ini
+            <input type="password" value={addForm.currentPassword} onChange={(event) => setAddForm({ ...addForm, currentPassword: event.target.value })} required />
+          </label>
+          <button type="submit" disabled={loading}><Plus size={18} /> Tambah Admin</button>
+        </form>
+
+        <form className="admin-account-card" onSubmit={changePassword}>
+          <h3>Ubah Password Admin</h3>
+          <label>Pilih admin
+            <select value={passwordForm.adminId} onChange={(event) => setPasswordForm({ ...passwordForm, adminId: event.target.value })} required>
+              {admins.map((admin) => <option key={admin.id} value={admin.id}>{admin.name} ({admin.username})</option>)}
+            </select>
+          </label>
+          <label>Password baru
+            <input type="password" value={passwordForm.newPassword} onChange={(event) => setPasswordForm({ ...passwordForm, newPassword: event.target.value })} required minLength={8} />
+          </label>
+          <label>Konfirmasi password baru
+            <input type="password" value={passwordForm.confirmPassword} onChange={(event) => setPasswordForm({ ...passwordForm, confirmPassword: event.target.value })} required minLength={8} />
+          </label>
+          <label>Password admin saat ini
+            <input type="password" value={passwordForm.currentPassword} onChange={(event) => setPasswordForm({ ...passwordForm, currentPassword: event.target.value })} required />
+          </label>
+          <button type="submit" className="ghost-button" disabled={loading || !admins.length}><KeyRound size={18} /> Simpan Password</button>
+        </form>
+
+        <div className="admin-account-card admin-list-card">
+          <h3>Daftar Admin</h3>
+          <div className="admin-user-list">
+            {admins.length ? admins.map((admin) => (
+              <div className="admin-user-item" key={admin.id}>
+                <div>
+                  <strong>{admin.name}</strong>
+                  <span>{admin.username}</span>
+                </div>
+                <span className="status-pill selected">Admin</span>
+              </div>
+            )) : <p className="muted">Belum ada data admin.</p>}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function SettingsDashboard({ accessControl, examSettings, onAccessControlChanged, onExamSettingsChanged }) {
   return (
     <div className="page-stack">
       <ExamSettingsPanel examSettings={examSettings} onChanged={onExamSettingsChanged} />
       <AccessControlPanel accessControl={accessControl} onChanged={onAccessControlChanged} />
+      <AdminAccountsPanel />
     </div>
   );
 }
@@ -1501,6 +1677,7 @@ function MonitoringDashboard({ attempts, students, exams, violations, activeTab 
   const [bulkFinishPassword, setBulkFinishPassword] = useState("");
   const [bulkFinishLoading, setBulkFinishLoading] = useState(false);
   const [bulkNotice, setBulkNotice] = useState("");
+  const [monitoringSort, setMonitoringSort] = useState({ key: "", direction: "asc" });
   const now = new Date();
 
   const studentById = useMemo(() => new Map(students.map((student) => [student.id, student])), [students]);
@@ -1545,6 +1722,8 @@ function MonitoringDashboard({ attempts, students, exams, violations, activeTab 
       subject: attempt.subject || exam.subject || "-",
       examDate: exam.date || "-",
       examTime: exam.id ? formatExamTimeRange(exam) : "-",
+      scheduleStartMs: schedule.startMs || 0,
+      updatedAtMs: attempt.updatedAt ? new Date(attempt.updatedAt).getTime() : 0,
       schedule,
       violationCount: violationCountByAttempt.get(`${attempt.examId}-${attempt.studentId}`) || 0,
       violationLogs: violationsByAttempt.get(`${attempt.examId}-${attempt.studentId}`) || [],
@@ -1567,7 +1746,15 @@ function MonitoringDashboard({ attempts, students, exams, violations, activeTab 
     return matchesExam && matchesClass && matchesStatus && haystack.includes(query.toLowerCase());
   });
 
-  const paged = getPageItems(filteredRows, page, pageSize);
+  const sortedRows = applyTableSort(filteredRows, monitoringSort, {
+    studentName: (item) => item.studentName,
+    className: (item) => item.className,
+    exam: (item) => `${item.examCode} ${item.subject} ${item.scheduleStartMs}`,
+    status: (item) => item.isStale ? "Perlu Dicek" : formatResultStatus(item.status),
+    activity: (item) => item.updatedAtMs,
+    violations: (item) => item.violationCount
+  });
+  const paged = getPageItems(sortedRows, page, pageSize);
   const selectableRows = filteredRows.filter((item) => item.status === "in_progress");
   const selectablePagedRows = paged.items.filter((item) => item.status === "in_progress");
   const selectedSet = new Set(selectedAttemptIds);
@@ -1590,6 +1777,11 @@ function MonitoringDashboard({ attempts, students, exams, violations, activeTab 
 
   function changeFilter(setter, value) {
     setter(value);
+    setPage(1);
+  }
+
+  function changeMonitoringSort(key) {
+    setMonitoringSort((current) => toggleTableSort(current, key));
     setPage(1);
   }
 
@@ -1735,7 +1927,7 @@ function MonitoringDashboard({ attempts, students, exams, violations, activeTab 
         <PaginationControls
           page={paged.currentPage}
           pageSize={pageSize}
-          total={filteredRows.length}
+          total={sortedRows.length}
           onPageChange={setPage}
           onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
           pageSizeOptions={[25, 50, 75, 100]}
@@ -1746,12 +1938,12 @@ function MonitoringDashboard({ attempts, students, exams, violations, activeTab 
             <thead>
               <tr>
                 <th>Pilih</th>
-                <th>Peserta</th>
-                <th>Kelas</th>
-                <th>Ujian / Jadwal</th>
-                <th>Status</th>
-                <th>Aktivitas</th>
-                <th>Pelanggaran</th>
+                <th><SortHeader sort={monitoringSort} sortKey="studentName" onSort={changeMonitoringSort}>Peserta</SortHeader></th>
+                <th><SortHeader sort={monitoringSort} sortKey="className" onSort={changeMonitoringSort}>Kelas</SortHeader></th>
+                <th><SortHeader sort={monitoringSort} sortKey="exam" onSort={changeMonitoringSort}>Ujian / Jadwal</SortHeader></th>
+                <th><SortHeader sort={monitoringSort} sortKey="status" onSort={changeMonitoringSort}>Status</SortHeader></th>
+                <th><SortHeader sort={monitoringSort} sortKey="activity" onSort={changeMonitoringSort}>Aktivitas</SortHeader></th>
+                <th><SortHeader sort={monitoringSort} sortKey="violations" onSort={changeMonitoringSort}>Pelanggaran</SortHeader></th>
                 <th>Aksi</th>
               </tr>
             </thead>
@@ -1802,7 +1994,7 @@ function MonitoringDashboard({ attempts, students, exams, violations, activeTab 
         <PaginationControls
           page={paged.currentPage}
           pageSize={pageSize}
-          total={filteredRows.length}
+          total={sortedRows.length}
           onPageChange={setPage}
           onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
           pageSizeOptions={[25, 50, 75, 100]}
@@ -3736,7 +3928,28 @@ function answerReviewForQuestion(question, answer) {
   };
 }
 
-function ResultsDashboard({ results, students, exams, questions = [] }) {
+function summarizeAnswerReviewRows(rows) {
+  return rows.reduce((summary, row) => {
+    if (row.review.key === "correct") summary.correct += 1;
+    else if (row.review.key === "manual") summary.manual += 1;
+    else summary.wrong += 1;
+    return summary;
+  }, { correct: 0, wrong: 0, manual: 0 });
+}
+
+function CorrectWrongCount({ summary }) {
+  if (!summary) return "-";
+  return (
+    <span className="correct-wrong-count" title={summary.manual ? `${summary.manual} jawaban menunggu koreksi manual` : "Jumlah jawaban benar dan salah"}>
+      <span className="answer-count-badge correct">{summary.correct}</span>
+      <span className="answer-count-separator">/</span>
+      <span className="answer-count-badge wrong">{summary.wrong}</span>
+      {summary.manual ? <span className="answer-count-badge manual">{summary.manual} manual</span> : null}
+    </span>
+  );
+}
+
+function ResultsDashboard({ results, students, exams, questions = [], violations = [] }) {
   const [examFilter, setExamFilter] = useState("");
   const [classFilter, setClassFilter] = useState("");
   const [electiveFilter, setElectiveFilter] = useState("");
@@ -3745,6 +3958,7 @@ function ResultsDashboard({ results, students, exams, questions = [] }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [answerDetail, setAnswerDetail] = useState(null);
+  const [resultSort, setResultSort] = useState({ key: "", direction: "asc" });
 
   const studentById = useMemo(() => new Map(students.map((student) => [student.id, student])), [students]);
   const examById = useMemo(() => new Map(exams.map((exam) => [exam.id, exam])), [exams]);
@@ -3755,12 +3969,28 @@ function ResultsDashboard({ results, students, exams, questions = [] }) {
     }
     return map;
   }, [questions]);
+  const violationCountsByResult = useMemo(() => {
+    const map = new Map();
+    for (const violation of violations) {
+      const key = `${violation.examId}-${violation.studentId}`;
+      const current = map.get(key) || { info: 0, warning: 0, critical: 0, total: 0 };
+      const level = normalizeViolationLevel(violation.level);
+      if (level === "info") current.info += 1;
+      else if (level === "warning") current.warning += 1;
+      else current.critical += 1;
+      current.total += 1;
+      map.set(key, current);
+    }
+    return map;
+  }, [violations]);
   const classOptions = [...new Set(students.map((student) => student.className).filter(Boolean))].sort((a, b) => a.localeCompare(b, "id"));
   const electiveOptions = [...new Set(students.flatMap((student) => formatElectiveSubjects(student)))].sort((a, b) => a.localeCompare(b, "id"));
 
   const enrichedResults = results.map((item) => {
     const student = studentById.get(item.studentId) || {};
     const exam = examById.get(item.examId) || {};
+    const answerSummary = summarizeAnswerReviewRows(answerRowsFor(item));
+    const violationCounts = violationCountsByResult.get(`${item.examId}-${item.studentId}`) || { info: 0, warning: 0, critical: 0, total: 0 };
     return {
       ...item,
       nis: student.nis || "",
@@ -3770,7 +4000,9 @@ function ResultsDashboard({ results, students, exams, questions = [] }) {
       religion: formatReligion(student),
       examCode: item.examCode || exam.code || "-",
       subject: item.subject || exam.subject || "-",
-      electiveSubjects: formatElectiveSubjects(student)
+      electiveSubjects: formatElectiveSubjects(student),
+      answerSummary,
+      violationCounts
     };
   });
 
@@ -3792,7 +4024,17 @@ function ResultsDashboard({ results, students, exams, questions = [] }) {
     return matchesExam && matchesClass && matchesElective && matchesStatus && text.includes(query.toLowerCase());
   });
 
-  const paged = getPageItems(filteredResults, page, pageSize);
+  const sortedResults = applyTableSort(filteredResults, resultSort, {
+    nis: (item) => item.nis,
+    nisn: (item) => item.nisn,
+    studentName: (item) => item.studentName,
+    className: (item) => item.className,
+    exam: (item) => `${item.examCode} ${item.subject}`,
+    status: (item) => formatResultStatus(item.status),
+    score: (item) => Number(item.score?.percent ?? -1),
+    updatedAt: (item) => item.updatedAt ? new Date(item.updatedAt).getTime() : 0
+  });
+  const paged = getPageItems(sortedResults, page, pageSize);
   const submittedResults = filteredResults.filter((item) => item.status === "submitted");
   const averageScore = submittedResults.length
     ? Math.round(submittedResults.reduce((total, item) => total + Number(item.score?.percent || 0), 0) / submittedResults.length)
@@ -3803,16 +4045,21 @@ function ResultsDashboard({ results, students, exams, questions = [] }) {
     setPage(1);
   }
 
+  function changeResultSort(key) {
+    setResultSort((current) => toggleTableSort(current, key));
+    setPage(1);
+  }
+
   function downloadFilteredResults() {
-    const baseHeaders = ["nis", "nisn", "nama", "kelas", "agama", "mapel_pilihan", "kode_ujian", "mata_pelajaran", "status", "nilai", "benar", "total", "update"];
-    const answerRowsByResult = new Map(filteredResults.map((item) => [item.id, answerRowsFor(item)]));
+    const baseHeaders = ["nis", "nama", "kelas", "agama", "mapel_pilihan", "mata_pelajaran", "status", "nilai", "jawaban benar", "jawaban salah", "update", "log info", "log peringatan", "log berat", "total log"];
+    const answerRowsByResult = new Map(sortedResults.map((item) => [item.id, answerRowsFor(item)]));
     const maxAnswerColumns = Math.max(0, ...Array.from(answerRowsByResult.values()).map((rows) => rows.length));
     const answerHeaderStyle = { "background-color": "#111827", color: "#ffffff", "font-weight": "700", "text-align": "center" };
     const answerHeaders = Array.from({ length: maxAnswerColumns }, (_, index) => ({
       value: `Jawaban ${index + 1}`,
       style: answerHeaderStyle
     }));
-    const rows = filteredResults.map((item) => {
+    const rows = sortedResults.map((item) => {
       const answerRows = answerRowsByResult.get(item.id) || [];
       const answerCells = Array.from({ length: maxAnswerColumns }, (_, index) => {
         const row = answerRows[index];
@@ -3824,18 +4071,20 @@ function ResultsDashboard({ results, students, exams, questions = [] }) {
       });
       return [
         item.nis,
-        item.nisn,
         item.studentName,
         item.className,
         item.religion,
         item.electiveSubjects.join("; "),
-        item.examCode,
         item.subject,
         formatResultStatus(item.status),
         item.score?.percent ?? "",
-        item.score?.earnedScore ?? "",
-        item.score?.totalScore ?? "",
+        item.score ? item.answerSummary.correct : "",
+        item.score ? item.answerSummary.wrong : "",
         item.updatedAt ? new Date(item.updatedAt).toLocaleString("id-ID") : "",
+        item.violationCounts.info,
+        item.violationCounts.warning,
+        item.violationCounts.critical,
+        item.violationCounts.total,
         ...answerCells
       ];
     });
@@ -3926,16 +4175,16 @@ function ResultsDashboard({ results, students, exams, questions = [] }) {
         <table className="result-table">
           <thead>
             <tr>
-              <th>NIS</th>
-              <th>NISN</th>
-              <th>Nama</th>
-              <th>Kelas</th>
+              <th><SortHeader sort={resultSort} sortKey="nis" onSort={changeResultSort}>NIS</SortHeader></th>
+              <th><SortHeader sort={resultSort} sortKey="nisn" onSort={changeResultSort}>NISN</SortHeader></th>
+              <th><SortHeader sort={resultSort} sortKey="studentName" onSort={changeResultSort}>Nama</SortHeader></th>
+              <th><SortHeader sort={resultSort} sortKey="className" onSort={changeResultSort}>Kelas</SortHeader></th>
               <th>Mapel Pilihan</th>
-              <th>Ujian</th>
-              <th>Status</th>
-              <th>Nilai</th>
-              <th>Benar/Total</th>
-              <th>Update</th>
+              <th><SortHeader sort={resultSort} sortKey="exam" onSort={changeResultSort}>Ujian</SortHeader></th>
+              <th><SortHeader sort={resultSort} sortKey="status" onSort={changeResultSort}>Status</SortHeader></th>
+              <th><SortHeader sort={resultSort} sortKey="score" onSort={changeResultSort}>Nilai</SortHeader></th>
+              <th>Benar / Salah</th>
+              <th><SortHeader sort={resultSort} sortKey="updatedAt" onSort={changeResultSort}>Update</SortHeader></th>
               <th>Jawaban</th>
             </tr>
           </thead>
@@ -3950,7 +4199,7 @@ function ResultsDashboard({ results, students, exams, questions = [] }) {
                 <td><strong>{item.examCode}</strong><br /><span>{item.subject}</span></td>
                 <td><span className={resultStatusClass(item.status)}>{formatResultStatus(item.status)}</span></td>
                 <td>{item.score ? (item.score.manualPending ? `${item.score.percent}*` : item.score.percent) : "-"}</td>
-                <td>{item.score ? `${item.score.earnedScore}/${item.score.totalScore}` : "-"}</td>
+                <td>{item.score ? <CorrectWrongCount summary={item.answerSummary} /> : "-"}</td>
                 <td>{item.score?.manualPending ? "Menunggu koreksi uraian" : (item.updatedAt ? new Date(item.updatedAt).toLocaleString("id-ID") : "-")}</td>
                 <td>
                   <button type="button" className="ghost-button compact-action" onClick={() => setAnswerDetail(item)}>
@@ -3970,7 +4219,7 @@ function ResultsDashboard({ results, students, exams, questions = [] }) {
       <PaginationControls
         page={paged.currentPage}
         pageSize={pageSize}
-        total={filteredResults.length}
+        total={sortedResults.length}
         onPageChange={setPage}
         onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
       />
@@ -4891,14 +5140,14 @@ function TeacherQuestionTest({ exams, questions }) {
         <QuestionImage src={question.image} alt={`Gambar soal ${index + 1}`} />
         {question.type === "multiple_response" ? (
           <div className="answer-options">
-            {(question.options || []).map((option) => (
+            {(question.options || []).map((option, optionIndex) => (
               <label className="answer-option" key={option.key}>
                 <input
                   type="checkbox"
                   checked={Array.isArray(answers[question.id]) && answers[question.id].includes(option.key)}
                   onChange={(event) => toggleMulti(question.id, option.key, event.target.checked)}
                 />
-                <span>{option.key}</span>
+                <span>{displayOptionLabel(optionIndex)}</span>
                 <div>{option.text}<QuestionImage src={option.image} alt={`Gambar opsi ${option.key}`} /></div>
               </label>
             ))}
@@ -4906,7 +5155,7 @@ function TeacherQuestionTest({ exams, questions }) {
         ) : null}
         {(!question.type || question.type === "multiple_choice") ? (
           <div className="answer-options">
-            {(question.options || []).map((option) => (
+            {(question.options || []).map((option, optionIndex) => (
               <label className="answer-option" key={option.key}>
                 <input
                   type="radio"
@@ -4914,7 +5163,7 @@ function TeacherQuestionTest({ exams, questions }) {
                   checked={answers[question.id] === option.key}
                   onChange={() => choose(question.id, option.key)}
                 />
-                <span>{option.key}</span>
+                <span>{displayOptionLabel(optionIndex)}</span>
                 <div>{option.text}<QuestionImage src={option.image} alt={`Gambar opsi ${option.key}`} /></div>
               </label>
             ))}
@@ -5805,14 +6054,14 @@ function ExamTaking({ session, onFinished }) {
             <QuestionImage src={currentQuestion.image} alt={`Gambar soal ${currentIndex + 1}`} />
             {currentQuestion.type === "multiple_response" ? (
               <div className="answer-options">
-                {(currentQuestion.options || []).map((option) => (
+                {(currentQuestion.options || []).map((option, optionIndex) => (
                   <label className="answer-option" key={option.key}>
                     <input
                       type="checkbox"
                       checked={Array.isArray(answers[currentQuestion.id]) && answers[currentQuestion.id].includes(option.key)}
                       onChange={(event) => toggleMulti(currentQuestion.id, option.key, event.target.checked)}
                     />
-                    <span>{option.key}</span>
+                    <span>{displayOptionLabel(optionIndex)}</span>
                     <div>{option.text}<QuestionImage src={option.image} alt={`Gambar opsi ${option.key}`} /></div>
                   </label>
                 ))}
@@ -5820,7 +6069,7 @@ function ExamTaking({ session, onFinished }) {
             ) : null}
             {(!currentQuestion.type || currentQuestion.type === "multiple_choice") ? (
               <div className="answer-options">
-                {(currentQuestion.options || []).map((option) => (
+                {(currentQuestion.options || []).map((option, optionIndex) => (
                   <label className="answer-option" key={option.key}>
                     <input
                       type="radio"
@@ -5828,7 +6077,7 @@ function ExamTaking({ session, onFinished }) {
                       checked={answers[currentQuestion.id] === option.key}
                       onChange={() => choose(currentQuestion.id, option.key)}
                     />
-                    <span>{option.key}</span>
+                    <span>{displayOptionLabel(optionIndex)}</span>
                     <div>{option.text}<QuestionImage src={option.image} alt={`Gambar opsi ${option.key}`} /></div>
                   </label>
                 ))}
@@ -6349,7 +6598,7 @@ function App() {
 
   function renderContent() {
     if (user.role === "guru") {
-      if (view === "results") return <ResultsDashboard results={results} students={students} exams={exams} questions={questions} />;
+      if (view === "results") return <ResultsDashboard results={results} students={students} exams={exams} questions={questions} violations={violations} />;
       if (view === "questionTest") return <TeacherQuestionTest exams={exams} questions={questions} />;
       return <TeacherDashboard exams={exams} questions={questions} onQuestionCreated={refresh} />;
     }
@@ -6357,7 +6606,7 @@ function App() {
       return <StudentDashboard user={user} exams={exams} onExamModeChange={setStudentExamActive} />;
     }
     if (user.role === "pengawas") {
-      if (view === "results") return <ResultsDashboard results={results} students={students} exams={exams} questions={questions} />;
+      if (view === "results") return <ResultsDashboard results={results} students={students} exams={exams} questions={questions} violations={violations} />;
       return <MonitoringDashboard attempts={attempts} students={students} exams={exams} violations={violations} activeTab={monitoringTab} onTabChange={setMonitoringTab} onChanged={refresh} canDeleteViolations={false} />;
     }
     if (view === "students") {
@@ -6376,7 +6625,7 @@ function App() {
       return <ExamParticipants exams={exams} students={students} attempts={attempts} onChanged={refresh} />;
     }
     if (view === "results") {
-      return <ResultsDashboard results={results} students={students} exams={exams} questions={questions} />;
+      return <ResultsDashboard results={results} students={students} exams={exams} questions={questions} violations={violations} />;
     }
     if (view === "monitoring") {
       return <MonitoringDashboard attempts={attempts} students={students} exams={exams} violations={violations} activeTab={monitoringTab} onTabChange={setMonitoringTab} onChanged={refresh} canDeleteViolations={user.role === "admin"} />;

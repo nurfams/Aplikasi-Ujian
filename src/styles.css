@@ -770,10 +770,16 @@ code {
   border: 0;
   color: #1d4ed8;
   font-size: 12px;
+  font-weight: 900;
   justify-content: flex-start;
   min-height: auto;
   padding: 0;
   text-transform: uppercase;
+  white-space: normal;
+}
+
+.table-sort-button.active {
+  color: #0f172a;
 }
 
 .exam-table td:first-child {
@@ -2601,6 +2607,49 @@ th {
   color: #475569;
 }
 
+.correct-wrong-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.answer-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  min-height: 26px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.answer-count-badge.correct {
+  background: #dcfce7;
+  border: 1px solid #86efac;
+  color: #166534;
+}
+
+.answer-count-badge.wrong {
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  color: #991b1b;
+}
+
+.answer-count-badge.manual {
+  background: #dbeafe;
+  border: 1px solid #93c5fd;
+  color: #1e3a8a;
+  font-size: 0.78rem;
+}
+
+.answer-count-separator {
+  color: #64748b;
+  font-weight: 800;
+}
+
 .monitoring-active-table {
   table-layout: fixed;
   width: 100%;
@@ -2963,6 +3012,64 @@ th {
   letter-spacing: 0;
 }
 
+.admin-account-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 14px;
+}
+
+.admin-account-card {
+  background: #f8fafc;
+  border: 1px solid #dbe5f0;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.admin-account-card h3 {
+  font-size: 1rem;
+  margin: 0 0 2px;
+}
+
+.admin-account-card button {
+  margin-top: 4px;
+}
+
+.admin-user-list {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-user-item {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 10px;
+}
+
+.admin-user-item div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.admin-user-item strong,
+.admin-user-item span {
+  overflow-wrap: anywhere;
+}
+
+.admin-user-item div span {
+  color: #64748b;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
 .monitoring-action-button {
   min-width: 0;
   padding: 0 8px;
@@ -2975,6 +3082,10 @@ th {
 }
 
 @media (max-width: 1280px) {
+  .admin-account-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .monitoring-stat-grid.eight-stats {
     grid-template-columns: repeat(4, minmax(120px, 1fr));
   }
@@ -3400,6 +3511,10 @@ th {
   .browser-token-item {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .admin-account-grid {
+    grid-template-columns: 1fr;
   }
 
   .participant-stat-grid {

@@ -3,6 +3,18 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+fun quotedBuildConfig(value: String): String {
+    return "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+}
+
+fun configValue(name: String, defaultValue: String): String {
+    return (findProperty(name) as String?) ?: System.getenv(name) ?: defaultValue
+}
+
+val cbtBaseUrl = configValue("CBT_BASE_URL", "http://120.29.153.130:5173/").trim().trimEnd('/') + "/"
+val cbtApiBaseUrl = configValue("CBT_API_BASE_URL", "http://120.29.153.130:4100/api").trim().trimEnd('/')
+val examClientKey = configValue("EXAM_CLIENT_KEY", "dev-exam-client-key").trim()
+
 android {
     namespace = "id.sman94.cbt.exam"
     compileSdk = 36
@@ -14,10 +26,10 @@ android {
         versionCode = 1
         versionName = "1.0.0"
 
-        buildConfigField("String", "CBT_BASE_URL", "\"http://192.168.1.3:5173/\"")
-        buildConfigField("String", "CBT_API_BASE_URL", "\"http://192.168.1.3:4100/api\"")
+        buildConfigField("String", "CBT_BASE_URL", quotedBuildConfig(cbtBaseUrl))
+        buildConfigField("String", "CBT_API_BASE_URL", quotedBuildConfig(cbtApiBaseUrl))
         buildConfigField("String", "EXAM_CLIENT_ID", "\"sman94-exam-browser\"")
-        buildConfigField("String", "EXAM_CLIENT_KEY", "\"dev-exam-client-key\"")
+        buildConfigField("String", "EXAM_CLIENT_KEY", quotedBuildConfig(examClientKey))
         buildConfigField("String", "SECURITY_MODE_LABEL", "\"Hybrid\"")
         buildConfigField("Boolean", "REQUIRE_OVERLAY", "false")
     }

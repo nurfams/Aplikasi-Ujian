@@ -1,121 +1,126 @@
 # Panduan Deploy Server CBT SMAN 94
 
-Dokumen ini dipakai saat aplikasi ujian akan dipasang di server sekolah. Fokusnya adalah mode produksi yang stabil, bukan mode development.
+Dokumen ini dipakai untuk memasang aplikasi CBT di komputer server sekolah. Fokusnya adalah server produksi web dan API. Android APK, Windows EXE, benchmark, dan file development tidak wajib ikut ke server utama.
 
-## 1. Rekomendasi Server
+## 1. Ringkasan Arsitektur
 
-Spesifikasi server yang ada:
+Mode produksi yang disarankan:
 
-- CPU: Intel Xeon E-2324G
-- RAM: 16 GB DDR4
-- Storage: 1 TB
-- Database: PostgreSQL
+- Frontend React dibuild menjadi folder `dist`.
+- Backend API Node.js berjalan di port `4100` memakai PM2.
+- Database memakai PostgreSQL.
+- HP/Android Exam Browser membuka URL frontend.
+- Frontend mengirim request ke API `http://IP-SERVER:4100/api` atau `/api` jika nanti memakai reverse proxy.
 
-Rekomendasi penggunaan awal:
+Untuk tahap awal tanpa reverse proxy:
 
-- 100-250 peserta per sesi: aman untuk tahap awal setelah benchmark stabil.
-- 300-400 peserta per sesi: boleh dicoba setelah benchmark 217 peserta stabil.
-- 648 peserta serentak: jangan dipakai dulu sebelum soak test 60-90 menit stabil.
+```text
+Frontend: http://IP-SERVER:5173
+API     : http://IP-SERVER:4100/api
+DB      : PostgreSQL lokal di server
+```
 
-Upgrade paling disarankan:
+Untuk produksi yang lebih rapi dengan reverse proxy:
 
-- Gunakan SSD/NVMe untuk PostgreSQL.
-- RAM 32 GB jika ingin mendekati 648 peserta serentak.
-- Hindari HDD biasa untuk beban ujian besar karena query dan write autosave bisa lambat.
+```text
+Frontend + API: http://IP-SERVER/ atau https://domain-sekolah/
+API diproxy dari /api ke http://127.0.0.1:4100/api
+```
 
-## 2. Software Yang Dibutuhkan
+## 2. Paket Deploy Yang Harus Dicopy
 
-Install di server:
+Paket server bersih sudah dibuat dari komputer development ke folder:
 
-- Node.js LTS 22 atau terbaru yang stabil.
-- PostgreSQL 16/17/18.
-- Git.
+```text
+artifacts\deploy-server-cbt-sman94-YYYYMMDD-HHMMSS
+```
+
+Isi yang wajib ada di paket deploy:
+
+- `server`
+- `src`
+- `db`
+- `docs`
+- `scripts`
+- `index.html`
+- `package.json`
+- `package-lock.json`
+- `vite.config.js`
+- `.env.example`
+- `README.md`
+
+Folder/file yang sengaja tidak ikut:
+
+- `.env`, karena berisi rahasia server.
+- `node_modules`, karena harus install ulang dengan `npm ci`.
+- `dist`, karena dibuat ulang dengan `npm run build`.
+- `.git`, karena server tidak wajib menyimpan riwayat Git jika deploy manual.
+- `data`, karena produksi memakai PostgreSQL. Jika data lama ingin dimigrasikan dari JSON, copy manual `data\cbt-store.json`.
+- `benchmark`, karena hanya alat test. Simpan terpisah.
+- `android-exam-browser`, karena hanya untuk build APK.
+- `electron-exam-browser`, karena EXE belum dipakai untuk produksi.
+- `artifacts`, karena berisi hasil build/paket lain.
+- file log seperti `api-server*.log`, `dev-server*.log`, `vite-server*.log`.
+
+## 3. Software Yang Perlu Diinstall Di Server
+
+Install ini di komputer server:
+
+- Node.js LTS.
+- PostgreSQL.
+- Git, opsional jika nanti update via Git.
 - PM2 untuk menjalankan backend.
-- k6 untuk benchmark.
-- Opsional: Nginx/Caddy/IIS sebagai reverse proxy.
+- Reverse proxy, opsional: Caddy, Nginx, atau IIS.
+- k6, opsional untuk benchmark.
 
-Cek instalasi:
+Cek dari PowerShell:
 
 ```powershell
 node -v
 npm -v
 psql --version
-git --version
-k6 version
 ```
 
-## 3. Ambil Project Ke Server
-
-Masuk ke folder tempat aplikasi akan disimpan, misalnya:
+Jika `psql` belum dikenali, tambahkan folder PostgreSQL `bin` ke PATH, contoh:
 
 ```powershell
-cd C:\Apps
-git clone <URL_REPOSITORY_ANDA> aplikasi-ujian
+[Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:\Program Files\PostgreSQL\18\bin", "Machine")
+```
+
+Tutup PowerShell lalu buka lagi.
+
+## 4. Copy Project Ke Server
+
+Buat folder aplikasi:
+
+```powershell
+New-Item -ItemType Directory -Force C:\Apps | Out-Null
+```
+
+Copy isi paket deploy ke:
+
+```text
+C:\Apps\aplikasi-ujian
+```
+
+Masuk ke folder aplikasi:
+
+```powershell
 cd C:\Apps\aplikasi-ujian
 ```
 
-Kalau project dipindah manual dari komputer pengembangan, pastikan folder berikut ikut:
+Pastikan isi folder tidak membawa `node_modules`, `dist`, `benchmark`, `android-exam-browser`, atau `electron-exam-browser`.
 
-- `server`
-- `src`
-- `benchmark`
-- `android-exam-browser`
-- `package.json`
-- `package-lock.json`
-- `.env.example`
+## 5. Setup File `.env`
 
-Jangan wajib ikut:
-
-- `node_modules`
-- `dist`
-- file log lama
-
-Install dependency:
-
-```powershell
-npm ci
-```
-
-Jika `npm ci` gagal karena `package-lock.json` tidak cocok, gunakan:
-
-```powershell
-npm install
-```
-
-## 4. Setup PostgreSQL
-
-Buat database:
-
-```powershell
-psql -U postgres
-```
-
-Di dalam `psql`:
-
-```sql
-CREATE DATABASE cbt_sman94;
-\q
-```
-
-Jika ingin user khusus aplikasi:
-
-```sql
-CREATE USER cbt_user WITH PASSWORD 'password-kuat-di-sini';
-GRANT ALL PRIVILEGES ON DATABASE cbt_sman94 TO cbt_user;
-```
-
-Untuk tahap awal boleh memakai user `postgres`, tapi untuk produksi lebih rapi memakai user khusus.
-
-## 5. Buat File `.env`
-
-Salin contoh:
+Salin file contoh:
 
 ```powershell
 Copy-Item .env.example .env
 notepad .env
 ```
 
-Contoh isi `.env`:
+Contoh isi produksi lokal:
 
 ```env
 PORT=4100
@@ -132,42 +137,68 @@ EXAM_PROGRESSIVE_PARTICIPANT_LIMIT=100
 EXAM_MASS_PARTICIPANT_LIMIT=300
 ```
 
-Catatan:
+Catatan penting:
 
-- `AUTH_SECRET` jangan diganti setelah aplikasi dipakai, karena token login lama akan invalid.
-- `EXAM_CLIENT_KEY` harus sama dengan yang dipakai aplikasi Android Exam Browser.
-- Jangan upload `.env` ke GitHub.
+- `AUTH_SECRET` jangan diganti setelah ujian berjalan, kecuali semua user siap login ulang.
+- `EXAM_CLIENT_KEY` harus sama dengan key di Android Exam Browser.
+- `.env` jangan dibagikan dan jangan diupload ke GitHub.
 
-## 6. Inisialisasi Database
+## 6. Setup PostgreSQL
 
-Jalankan:
+Pastikan service PostgreSQL berjalan dari `services.msc`.
+
+Install dependency aplikasi:
+
+```powershell
+npm ci
+```
+
+Jalankan setup database:
 
 ```powershell
 npm run db:setup
 ```
 
-Lalu tes API:
+Perilaku setup:
+
+- Membuat database sesuai `DATABASE_URL` jika belum ada.
+- Membuat tabel dan index.
+- Jika ada `data\cbt-store.json`, data akan dimigrasikan.
+- Jika tidak ada `data\cbt-store.json`, database dibuat kosong dengan akun awal:
+
+```text
+username: admin
+password: admin123
+```
+
+Setelah berhasil login pertama kali, segera buka `Pengaturan > Akun Admin`, buat admin baru atau ubah password admin.
+
+## 7. Test API Manual
+
+Jalankan API sementara:
 
 ```powershell
-$env:PORT="4100"
 node server/server.js
 ```
 
-Buka terminal lain:
+Buka PowerShell lain:
 
 ```powershell
 curl http://127.0.0.1:4100/api/health
 ```
 
-Harus muncul kira-kira:
+Hasil yang benar memuat:
 
 ```json
-{"ok":true,"service":"CBT SMAN 94 API","storage":"postgresql"}
+{
+  "ok": true,
+  "storage": "postgresql"
+}
 ```
 
-Jika sudah berhasil, hentikan server manual dengan `Ctrl + C`.
+Hentikan API sementara dengan `Ctrl + C`.
 
-## 7. Build Frontend
+## 8. Build Frontend
 
 Jalankan:
 
@@ -175,15 +206,15 @@ Jalankan:
 npm run build
 ```
 
-Hasil build ada di folder:
+Hasilnya folder:
 
 ```text
 dist
 ```
 
-Folder `dist` inilah yang dipakai untuk frontend produksi.
+Jika nanti ada update kode frontend, jalankan ulang `npm run build`.
 
-## 8. Jalankan Backend Dengan PM2
+## 9. Jalankan Backend Dengan PM2
 
 Install PM2:
 
@@ -195,82 +226,97 @@ Jalankan API:
 
 ```powershell
 $env:NODE_OPTIONS="--max-old-space-size=4096"
-pm2 start server/server.js --name cbt-sman94-api
+pm2 start server/server.js --name cbt-sman94-api --update-env
 pm2 save
 ```
 
-Cek status:
+Cek:
 
 ```powershell
 pm2 status
-pm2 logs cbt-sman94-api
+pm2 logs cbt-sman94-api --lines 50
 ```
 
-Restart setelah update kode:
+Restart setelah update:
 
 ```powershell
 pm2 restart cbt-sman94-api --update-env
 ```
 
-Stop:
+Mode yang dipakai saat ini: `fork`. Untuk aplikasi ini, `fork` lebih aman dulu karena state ujian, cache, dan sesi lebih mudah dikontrol. Cluster boleh diuji nanti setelah sistem stabil di server produksi.
 
-```powershell
-pm2 stop cbt-sman94-api
+## 9A. Auto Start Saat Komputer Server Menyala
+
+Folder `scripts` berisi file `.bat` untuk menyalakan server otomatis:
+
+```text
+scripts\start-cbt-server.bat
+scripts\stop-cbt-server.bat
+scripts\install-startup-shortcut.bat
 ```
 
-Catatan penting:
+Fungsi:
 
-- Jangan jalankan produksi dengan `npm run dev`.
-- `npm run dev` hanya untuk pengembangan karena menjalankan Vite dan API bersamaan.
-- Saat ujian, jalankan API saja dengan PM2.
+- `start-cbt-server.bat`: menyalakan API port `4100` lewat PM2 dan web port `5173`.
+- `stop-cbt-server.bat`: menghentikan API dan web preview.
+- `install-startup-shortcut.bat`: membuat shortcut di Startup Windows.
 
-## 9. Menyajikan Frontend
+Cara pasang auto-start:
 
-### Opsi A: sementara dengan Vite preview
+```powershell
+cd C:\Apps\aplikasi-ujian
+scripts\install-startup-shortcut.bat
+```
 
-Untuk uji coba internal:
+Setelah itu restart komputer server atau logout-login Windows. Server akan otomatis menjalankan:
+
+```text
+API : http://127.0.0.1:4100/api/health
+Web : http://127.0.0.1:5173
+```
+
+Catatan:
+
+- Jangan copy langsung `start-cbt-server.bat` ke Startup. Gunakan `install-startup-shortcut.bat` agar path project tetap benar.
+- Auto-start lewat Startup berjalan setelah user Windows login.
+- Jika ingin server tetap nyala sebelum user login, gunakan Task Scheduler atau Windows Service. Itu bisa dibuat nanti setelah server produksi sudah stabil.
+- File log web preview ada di `logs\frontend-preview.log`.
+
+## 10. Menjalankan Frontend
+
+### Opsi cepat untuk LAN sekolah
+
+Jalankan preview:
 
 ```powershell
 npm run preview -- --host 0.0.0.0 --port 5173
 ```
 
-Ini boleh untuk tes, tetapi bukan pilihan terbaik untuk produksi jangka panjang.
-
-### Opsi B: reverse proxy/static server
-
-Untuk produksi, gunakan Nginx/Caddy/IIS:
-
-- Frontend: arahkan ke folder `dist`.
-- API: proxy request `/api` ke `http://127.0.0.1:4100`.
-
-Contoh konsep routing:
-
-```text
-http://server-sekolah/
-  -> dist/index.html dan asset frontend
-
-http://server-sekolah/api/*
-  -> http://127.0.0.1:4100/api/*
-```
-
-Jika belum memakai reverse proxy, Android/HP dapat mengakses sementara:
+Buka dari HP:
 
 ```text
 http://IP-SERVER:5173
 ```
 
-Pastikan API di frontend mengarah ke server yang benar. Jika frontend dan API beda port, pastikan konfigurasi API base URL sudah sesuai di kode/build.
+### Opsi produksi lebih rapi
 
-## 10. Firewall Windows
+Gunakan Caddy/Nginx/IIS:
 
-Buka port yang dipakai:
+- Static frontend diarahkan ke folder `dist`.
+- Request `/api/*` diproxy ke `http://127.0.0.1:4100/api/*`.
+
+Jika memakai domain dan HTTPS, APK Android harus dibuild ulang memakai URL tersebut.
+
+## 11. Firewall Windows
+
+Buka port API dan frontend:
 
 ```powershell
-New-NetFirewallRule -DisplayName "CBT Web 5173" -Direction Inbound -Protocol TCP -LocalPort 5173 -Action Allow
 New-NetFirewallRule -DisplayName "CBT API 4100" -Direction Inbound -Protocol TCP -LocalPort 4100 -Action Allow
+New-NetFirewallRule -DisplayName "CBT Web 5173" -Direction Inbound -Protocol TCP -LocalPort 5173 -Action Allow
 ```
 
-Jika nanti pakai reverse proxy di port 80/443:
+Jika pakai reverse proxy:
 
 ```powershell
 New-NetFirewallRule -DisplayName "CBT HTTP 80" -Direction Inbound -Protocol TCP -LocalPort 80 -Action Allow
@@ -283,15 +329,9 @@ Cek IP server:
 ipconfig
 ```
 
-Dari HP siswa/guru, tes:
+## 12. Tuning PostgreSQL Awal
 
-```text
-http://IP-SERVER:5173
-```
-
-## 11. PostgreSQL Tuning Awal
-
-Untuk RAM 16 GB, tuning awal yang konservatif:
+Untuk RAM 16 GB, konfigurasi awal konservatif:
 
 ```conf
 shared_buffers = 4GB
@@ -304,81 +344,28 @@ wal_buffers = 16MB
 random_page_cost = 1.1
 ```
 
-Lokasi file biasanya:
+File biasanya ada di:
 
 ```text
 C:\Program Files\PostgreSQL\<versi>\data\postgresql.conf
 ```
 
-Setelah ubah konfigurasi, restart service PostgreSQL dari `services.msc`.
+Setelah ubah konfigurasi, restart PostgreSQL dari `services.msc`.
 
-Catatan:
-
-- Jangan menaikkan `max_connections` terlalu tinggi jika RAM 16 GB.
-- Lebih baik koneksi stabil dan query cepat daripada koneksi banyak tapi memory penuh.
-
-## 12. Benchmark Sebelum Ujian
-
-Masuk folder benchmark:
-
-```powershell
-cd C:\Apps\aplikasi-ujian\benchmark
-```
-
-Tes kecil:
-
-```powershell
-$env:BASE_URL="http://127.0.0.1:4100"
-$env:TARGET_VUS="50"
-$env:MODE="once"
-k6 run exam-flow.js
-```
-
-Tes 100 peserta:
-
-```powershell
-$env:TARGET_VUS="100"
-$env:MODE="once"
-k6 run exam-flow.js
-```
-
-Tes soak:
-
-```powershell
-$env:TARGET_VUS="217"
-$env:MODE="soak"
-k6 run exam-flow.js
-```
-
-Target minimal sebelum ujian:
-
-- API tidak crash.
-- Memory Node tidak naik terus sampai habis.
-- `http_req_failed` kurang dari 1-3%.
-- `student_login_failed` mendekati 0.
-- `autosave_failed` mendekati 0.
-- `heartbeat_failed` rendah.
-- p95 endpoint ringan ideal di bawah 2 detik.
-
-Jika soak 217 masih crash:
-
-- Jangan pakai 648 peserta serentak.
-- Bagi ujian menjadi sesi 100-250 peserta.
-- Jalankan benchmark ulang setelah optimasi backend.
-
-## 13. SOP Sebelum Hari Ujian
+## 13. Checklist Sebelum Ujian
 
 Satu hari sebelum ujian:
 
-- Import data siswa.
-- Import data guru.
-- Buat jadwal ujian.
-- Assign peserta ujian.
-- Pastikan total bobot soal 100.
-- Guru test soal.
-- Admin cek soal bila ujian resmi.
-- Cek status publish.
-- Jalankan benchmark kecil 50-100 VU.
+- Login admin berhasil.
+- Password admin default sudah diganti.
+- Data siswa dan guru sudah benar.
+- Peserta ujian sudah dipilih.
+- Soal sudah masuk.
+- Total bobot soal mendekati atau tepat 100.
+- Jadwal dan status publish sudah benar.
+- Pengaturan token sudah benar.
+- APK Android sudah mengarah ke URL server produksi.
+- Test 5-10 perangkat nyata.
 - Backup database.
 
 Pagi hari ujian:
@@ -391,138 +378,179 @@ curl http://127.0.0.1:4100/api/health
 
 Cek juga:
 
-- Storage kosong cukup.
-- RAM tidak penuh.
-- PostgreSQL running.
 - IP server tidak berubah.
-- Wi-Fi sekolah stabil.
-- Android Exam Browser sudah diarahkan ke IP/domain server yang benar.
+- Wi-Fi stabil.
+- Storage cukup.
+- RAM server lega.
+- PostgreSQL running.
+- Firewall terbuka.
 
 ## 14. Backup Database
+
+Buat folder backup:
+
+```powershell
+New-Item -ItemType Directory -Force C:\Backup\CBT | Out-Null
+```
 
 Backup manual:
 
 ```powershell
-pg_dump -U postgres -d cbt_sman94 -F c -f C:\Backup\cbt_sman94_%DATE:~-4%%DATE:~3,2%%DATE:~0,2%.backup
+pg_dump -U postgres -d cbt_sman94 -F c -f C:\Backup\CBT\cbt_sman94.backup
 ```
 
 Restore:
 
 ```powershell
-pg_restore -U postgres -d cbt_sman94 --clean --if-exists C:\Backup\nama_file.backup
+pg_restore -U postgres -d cbt_sman94 --clean --if-exists C:\Backup\CBT\cbt_sman94.backup
 ```
 
-Saran:
+Saran waktu backup:
 
-- Backup sebelum import data besar.
-- Backup sebelum ujian resmi.
-- Backup setelah ujian selesai.
-- Simpan backup ke disk lain atau komputer lain.
+- Sebelum import siswa/guru besar.
+- Sebelum ujian resmi.
+- Setelah ujian selesai.
+- Sebelum update aplikasi.
 
 ## 15. Update Aplikasi Di Server
 
-Jika menggunakan Git:
+Jika deploy manual:
+
+1. Stop frontend preview jika sedang jalan.
+2. Backup database.
+3. Copy paket deploy baru ke folder sementara.
+4. Copy file kode baru ke `C:\Apps\aplikasi-ujian`.
+5. Jangan overwrite `.env`.
+
+Lalu:
+
+```powershell
+cd C:\Apps\aplikasi-ujian
+npm ci
+npm run db:setup
+npm run build
+pm2 restart cbt-sman94-api --update-env
+curl http://127.0.0.1:4100/api/health
+```
+
+Jika memakai Git:
 
 ```powershell
 cd C:\Apps\aplikasi-ujian
 git pull
 npm ci
+npm run db:setup
 npm run build
 pm2 restart cbt-sman94-api --update-env
 ```
 
-Tes:
+## 16. Jika Server Pindah IP atau Domain
 
-```powershell
-curl http://127.0.0.1:4100/api/health
+Yang perlu diubah:
+
+- URL akses frontend di perangkat siswa.
+- Build APK Android, karena URL server ditanam di APK.
+- Firewall jika port berubah.
+- Reverse proxy jika memakai domain.
+
+Lokasi konfigurasi build APK ada di:
+
+```text
+android-exam-browser\README.md
+android-exam-browser\app\build.gradle.kts
 ```
 
-Jika ada error setelah update, cek:
+Contoh build ulang APK dari komputer development:
 
 ```powershell
-pm2 logs cbt-sman94-api
-git status
-git log --oneline -10
+cd C:\Users\nurfa\Desktop\Aplikasi Ujian\android-exam-browser
+$env:JAVA_HOME="C:\Program Files\Android\Android Studio\jbr"
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+.\gradlew.bat assembleOverlayDebug `
+  -PCBT_BASE_URL="http://IP-SERVER:5173/" `
+  -PCBT_API_BASE_URL="http://IP-SERVER:4100/api" `
+  -PEXAM_CLIENT_KEY="isi-sama-dengan-EXAM_CLIENT_KEY-di-env-server"
 ```
 
-## 16. Jika Terjadi Masalah Saat Ujian
+## 17. Benchmark Opsional
 
-### API tidak bisa diakses
+Folder benchmark tidak masuk paket server utama. Jika ingin benchmark di server, copy folder `benchmark` secara terpisah.
+
+Contoh test realistis:
+
+```powershell
+cd C:\Apps\aplikasi-ujian\benchmark
+$env:BASE_URL="http://127.0.0.1:4100"
+$env:TARGET_VUS="648"
+$env:MODE="real"
+k6 run real-submit-flow.js
+```
+
+Target sebelum ujian besar:
+
+- `http_req_failed` rendah.
+- Tidak ada timeout besar.
+- Memory Node tidak naik tanpa turun terus-menerus.
+- Login dan submit berhasil.
+- Saat test perangkat nyata, jawaban tetap masuk.
+
+## 18. Troubleshooting Cepat
+
+API tidak hidup:
 
 ```powershell
 pm2 status
+pm2 logs cbt-sman94-api --lines 100
 pm2 restart cbt-sman94-api --update-env
-curl http://127.0.0.1:4100/api/health
 ```
 
-### PostgreSQL mati
+Database tidak konek:
 
 ```powershell
 Get-Service *postgres*
+psql -U postgres -d cbt_sman94
 ```
 
-Restart dari `services.msc`.
+Frontend tidak bisa dibuka dari HP:
 
-### Memory Node naik terus
+- Cek IP server.
+- Cek firewall port 5173 atau 80/443.
+- Pastikan `npm run preview -- --host 0.0.0.0 --port 5173` berjalan jika belum pakai reverse proxy.
 
-Langkah darurat:
+APK tidak bisa login:
 
-```powershell
-pm2 restart cbt-sman94-api --update-env
-```
+- Cek `CBT_BASE_URL` dan `CBT_API_BASE_URL` saat build APK.
+- Cek `EXAM_CLIENT_KEY` sama dengan `.env` server.
+- Cek HP dan server berada di jaringan yang sama.
 
-Langkah operasional:
+Admin tidak bisa login:
 
-- Jangan langsung lanjut 648 peserta.
-- Pecah sesi ujian.
-- Cek log PM2.
-- Jalankan benchmark ulang setelah ujian.
+- Jika database baru, gunakan `admin/admin123`.
+- Jika sudah diganti, gunakan admin baru.
+- Jika lupa semua password admin, jangan reset database. Backup dulu, lalu lakukan perbaikan akun via PostgreSQL.
 
-### Banyak siswa tidak bisa masuk
-
-Cek:
-
-- Jadwal ujian sudah masuk waktu.
-- Status ujian `published`.
-- Peserta sudah diassign.
-- Token global aktif atau mode tanpa token benar.
-- IP/domain di Android Exam Browser benar.
-- Firewall tidak memblokir port.
-
-## 17. Catatan Produksi Penting
-
-Untuk produksi:
-
-- Jangan gunakan `npm run dev`.
-- Jangan menjalankan banyak server Node bersamaan di port berbeda tanpa alasan.
-- Gunakan PM2 agar API otomatis restart jika crash.
-- Gunakan domain lokal atau IP statis untuk server.
-- Idealnya gunakan SSD/NVMe.
-- Lakukan benchmark setelah perubahan besar.
-- Commit Git sebelum deploy agar mudah rollback.
-
-## 18. Urutan Deploy Singkat
-
-Ringkasnya:
+## 19. Urutan Deploy Singkat
 
 ```powershell
 cd C:\Apps\aplikasi-ujian
-npm ci
 Copy-Item .env.example .env
 notepad .env
+npm ci
 npm run db:setup
 npm run build
 npm install -g pm2
 $env:NODE_OPTIONS="--max-old-space-size=4096"
-pm2 start server/server.js --name cbt-sman94-api
+pm2 start server/server.js --name cbt-sman94-api --update-env
 pm2 save
 curl http://127.0.0.1:4100/api/health
+npm run preview -- --host 0.0.0.0 --port 5173
 ```
 
-Setelah itu:
+Setelah berhasil:
 
-- Sajikan folder `dist` melalui reverse proxy/static server.
-- Buka firewall.
-- Tes dari HP Android.
-- Jalankan benchmark.
-- Baru gunakan untuk ujian sebenarnya.
+- Login admin.
+- Ubah password admin default.
+- Import siswa/guru.
+- Buat ujian.
+- Test dari Android.
+- Backup database.

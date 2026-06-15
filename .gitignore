@@ -8,3 +8,6 @@ npm-debug.log*
 *.tmp
 benchmark/students.csv
 artifacts/windows-exam-browser/
+artifacts/deploy-server-cbt-sman94-*/
+artifacts/deploy-server-cbt-sman94-*.zip
+logs/
