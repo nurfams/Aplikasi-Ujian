@@ -381,7 +381,17 @@ const QUESTION_TYPES = [
   { value: "essay", label: "Uraian / Isian Panjang" }
 ];
 
-const DEFAULT_ANSWER_RULES = { caseSensitive: false, ignorePunctuation: true, trimSpaces: true };
+const DEFAULT_ANSWER_RULES = { caseSensitive: false, ignorePunctuation: true, trimSpaces: true, matchingMode: "drag" };
+const IMAGE_SIZE_OPTIONS = [
+  { value: "small", label: "Kecil" },
+  { value: "medium", label: "Sedang" },
+  { value: "large", label: "Besar" },
+  { value: "full", label: "Penuh" }
+];
+
+function normalizeImageSize(value) {
+  return IMAGE_SIZE_OPTIONS.some((item) => item.value === value) ? value : "medium";
+}
 
 function createDefaultQuestion(examId = "") {
   return {
@@ -389,17 +399,18 @@ function createDefaultQuestion(examId = "") {
     type: "multiple_choice",
     body: "",
     image: "",
+    imageSize: "medium",
     answerKey: "A",
     correctAnswers: [],
     score: 1,
-    options: OPTION_KEYS.map((key) => ({ key, text: "", image: "" })),
+    options: OPTION_KEYS.map((key) => ({ key, text: "", image: "", imageSize: "medium" })),
     statements: [
-      { id: "st-1", text: "", image: "", answer: "true" },
-      { id: "st-2", text: "", image: "", answer: "false" }
+      { id: "st-1", text: "", image: "", imageSize: "medium", answer: "true" },
+      { id: "st-2", text: "", image: "", imageSize: "medium", answer: "false" }
     ],
     pairs: [
-      { id: "pair-1", left: "", right: "", leftImage: "", rightImage: "" },
-      { id: "pair-2", left: "", right: "", leftImage: "", rightImage: "" }
+      { id: "pair-1", left: "", right: "", leftImage: "", rightImage: "", leftImageSize: "medium", rightImageSize: "medium" },
+      { id: "pair-2", left: "", right: "", leftImage: "", rightImage: "", leftImageSize: "medium", rightImageSize: "medium" }
     ],
     shortAnswers: [""],
     answerRules: { ...DEFAULT_ANSWER_RULES }
@@ -413,26 +424,38 @@ function normalizeQuestionForForm(question, fallbackExamId = "") {
     examId: question.examId || fallbackExamId,
     type: question.type || "multiple_choice",
     image: question.image || "",
+    imageSize: normalizeImageSize(question.imageSize),
     options: Array.isArray(question.options) && question.options.length
-      ? question.options.map((option) => ({ key: option.key, text: option.text || "", image: option.image || "" }))
+      ? question.options.map((option) => ({ key: option.key, text: option.text || "", image: option.image || "", imageSize: normalizeImageSize(option.imageSize) }))
       : createDefaultQuestion(fallbackExamId).options,
     correctAnswers: Array.isArray(question.correctAnswers) ? question.correctAnswers : [],
-    statements: Array.isArray(question.statements) && question.statements.length ? question.statements : createDefaultQuestion(fallbackExamId).statements,
-    pairs: Array.isArray(question.pairs) && question.pairs.length ? question.pairs : createDefaultQuestion(fallbackExamId).pairs,
+    statements: Array.isArray(question.statements) && question.statements.length
+      ? question.statements.map((statement) => ({ ...statement, imageSize: normalizeImageSize(statement.imageSize) }))
+      : createDefaultQuestion(fallbackExamId).statements,
+    pairs: Array.isArray(question.pairs) && question.pairs.length
+      ? question.pairs.map((pair) => ({ ...pair, leftImageSize: normalizeImageSize(pair.leftImageSize), rightImageSize: normalizeImageSize(pair.rightImageSize) }))
+      : createDefaultQuestion(fallbackExamId).pairs,
     shortAnswers: Array.isArray(question.shortAnswers) && question.shortAnswers.length ? question.shortAnswers : [""],
     answerRules: { ...DEFAULT_ANSWER_RULES, ...(question.answerRules || {}) }
   };
 }
 
 function cleanQuestionForSubmit(form) {
-  const cleanOptions = (form.options || []).filter((option) => option.text.trim() || option.image);
+  const cleanOptions = (form.options || [])
+    .map((option) => ({ ...option, imageSize: normalizeImageSize(option.imageSize) }))
+    .filter((option) => option.text.trim() || option.image);
   const payload = {
     ...form,
+    imageSize: normalizeImageSize(form.imageSize),
     score: Number(String(form.score || 1).replace(",", ".")),
     options: cleanOptions,
     correctAnswers: form.correctAnswers || [],
-    statements: (form.statements || []).filter((statement) => statement.text.trim() || statement.image),
-    pairs: (form.pairs || []).filter((pair) => (pair.left.trim() || pair.leftImage) && (pair.right.trim() || pair.rightImage)),
+    statements: (form.statements || [])
+      .map((statement) => ({ ...statement, imageSize: normalizeImageSize(statement.imageSize) }))
+      .filter((statement) => statement.text.trim() || statement.image),
+    pairs: (form.pairs || [])
+      .map((pair) => ({ ...pair, leftImageSize: normalizeImageSize(pair.leftImageSize), rightImageSize: normalizeImageSize(pair.rightImageSize) }))
+      .filter((pair) => (pair.left.trim() || pair.leftImage) && (pair.right.trim() || pair.rightImage)),
     shortAnswers: (form.shortAnswers || []).map((item) => item.trim()).filter(Boolean),
     answerRules: { ...DEFAULT_ANSWER_RULES, ...(form.answerRules || {}) }
   };
@@ -478,6 +501,146 @@ function SortHeader({ sort, sortKey, onSort, children }) {
     <button type="button" className={`table-sort-button${active ? " active" : ""}`} onClick={() => onSort(sortKey)}>
       {children}{active ? ` ${sort.direction === "asc" ? "ASC" : "DESC"}` : ""}
     </button>
+  );
+}
+
+function matchingModeOf(question) {
+  const mode = question?.matchingMode || question?.answerRules?.matchingMode;
+  return mode === "dropdown" ? "dropdown" : "drag";
+}
+
+function MatchingAnswerInput({ question, answer, onChange, onReset }) {
+  const [activePairId, setActivePairId] = useState("");
+  const pairs = question?.pairs || [];
+  const options = question?.matchingOptions || pairs.map((pair) => ({ value: pair.right, image: pair.rightImage || "" }));
+  const selected = answer && typeof answer === "object" ? answer : {};
+  const usedValues = new Set(Object.values(selected).filter(Boolean));
+  const labelByValue = new Map(options.map((option, index) => [String(option.value), displayOptionLabel(index)]));
+  const optionByValue = new Map(options.map((option) => [String(option.value), option]));
+  const mode = matchingModeOf(question);
+
+  function setPairAnswer(pairId, value) {
+    onChange(pairId, value);
+    setActivePairId("");
+  }
+
+  function handleOptionTap(value) {
+    if (!activePairId) return;
+    const selectedByPair = [...Object.entries(selected)].find(([, selectedValue]) => String(selectedValue) === String(value))?.[0];
+    if (selectedByPair && selectedByPair !== activePairId) return;
+    setPairAnswer(activePairId, value);
+  }
+
+  if (mode === "dropdown") {
+    return (
+      <div className="matching-answer-list matching-dropdown-list">
+        <div className="matching-option-reference">
+          <strong>Kolom B</strong>
+          <div>
+            {options.map((option, index) => (
+              <span className="matching-reference-item" key={`${option.value}-${index}`}>
+                <b>{displayOptionLabel(index)}.</b> {option.value || "Jawaban kosong"}
+                <QuestionImage src={option.image} size={option.imageSize} alt={`Gambar kolom B ${displayOptionLabel(index)}`} />
+              </span>
+            ))}
+          </div>
+        </div>
+        {pairs.map((pair, pairIndex) => (
+          <label className="matching-answer" key={pair.id}>
+            <span>{pairIndex + 1}. {pair.left}</span>
+            <QuestionImage src={pair.leftImage} size={pair.leftImageSize} alt={`Gambar pasangan ${pairIndex + 1}`} />
+            <select value={selected[pair.id] || ""} onChange={(event) => setPairAnswer(pair.id, event.target.value)}>
+              <option value="">Pilih pasangan...</option>
+              {options.map((option, optionIndex) => {
+                const selectedByPair = [...Object.entries(selected)].find(([, value]) => String(value) === String(option.value))?.[0];
+                return (
+                  <option value={option.value} key={`${option.value}-${optionIndex}`} disabled={Boolean(selectedByPair && selectedByPair !== pair.id)}>
+                    {displayOptionLabel(optionIndex)}. {option.value}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="matching-drag-answer">
+      <div className="matching-drag-hint">Tap Kolom A lalu tap jawaban di Kolom B. Di laptop, jawaban juga bisa ditarik ke target.</div>
+      <div className="matching-drag-grid">
+        <div className="matching-column matching-left-column">
+          <strong>Kolom A</strong>
+          {pairs.map((pair, pairIndex) => {
+            const currentValue = selected[pair.id] || "";
+            const currentOption = currentValue ? optionByValue.get(String(currentValue)) : null;
+            const active = activePairId === pair.id;
+            return (
+              <button
+                type="button"
+                className={`matching-target${active ? " active" : ""}${currentValue ? " answered" : ""}`}
+                key={pair.id}
+                onClick={() => setActivePairId(active ? "" : pair.id)}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const value = event.dataTransfer.getData("text/plain");
+                  const selectedByPair = [...Object.entries(selected)].find(([, selectedValue]) => String(selectedValue) === String(value))?.[0];
+                  if (value && (!selectedByPair || selectedByPair === pair.id)) setPairAnswer(pair.id, value);
+                }}
+              >
+                <span className="matching-target-title">{pairIndex + 1}. {pair.left || "Item kosong"}</span>
+                <QuestionImage src={pair.leftImage} size={pair.leftImageSize} alt={`Gambar kolom A ${pairIndex + 1}`} />
+                <span className="matching-picked">
+                  {currentValue ? (
+                    <>
+                      <b>{labelByValue.get(String(currentValue)) || ""}</b>
+                      <span>{currentOption?.value}</span>
+                      <QuestionImage src={currentOption?.image} size={currentOption?.imageSize} alt={`Gambar jawaban terpilih ${labelByValue.get(String(currentValue)) || ""}`} />
+                    </>
+                  ) : active ? "Pilih jawaban di Kolom B" : "Belum dipasangkan"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="matching-column matching-right-column">
+          <strong>Kolom B</strong>
+          {options.map((option, optionIndex) => {
+            const selectedByPair = [...Object.entries(selected)].find(([, value]) => String(value) === String(option.value))?.[0];
+            const used = usedValues.has(option.value);
+            const disabled = Boolean(used && selectedByPair !== activePairId);
+            return (
+              <button
+                type="button"
+                className={`matching-option-card${used ? " used" : ""}`}
+                key={`${option.value}-${optionIndex}`}
+                draggable={!disabled}
+                disabled={disabled}
+                onDragStart={(event) => event.dataTransfer.setData("text/plain", option.value)}
+                onClick={() => handleOptionTap(option.value)}
+                title={activePairId ? "Pilih sebagai pasangan" : "Pilih dulu item di Kolom A"}
+              >
+                <span>{displayOptionLabel(optionIndex)}</span>
+                <div>
+                  <strong>{option.value || "Jawaban kosong"}</strong>
+                  <QuestionImage src={option.image} size={option.imageSize} alt={`Gambar kolom B ${displayOptionLabel(optionIndex)}`} />
+                  {selectedByPair ? <small>Dipakai</small> : null}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {Object.keys(selected).length ? (
+        <button type="button" className="ghost-button matching-reset-button" onClick={() => {
+          setActivePairId("");
+          if (onReset) onReset();
+          else pairs.forEach((pair) => onChange(pair.id, ""));
+        }}>Reset Pasangan</button>
+      ) : null}
+    </div>
   );
 }
 
@@ -1520,10 +1683,108 @@ function AdminAccountsPanel() {
   );
 }
 
-function SettingsDashboard({ accessControl, examSettings, onAccessControlChanged, onExamSettingsChanged }) {
+function DapodikSyncPanel({ onChanged }) {
+  const emptyDapodik = { baseUrl: "http://localhost:5774", npsn: "20101585", token: "" };
+  const [dapodikForm, setDapodikForm] = useState(emptyDapodik);
+  const [dapodikPreview, setDapodikPreview] = useState(null);
+  const [dapodikLoading, setDapodikLoading] = useState("");
+  const [notice, setNotice] = useState("");
+
+  async function testDapodikConnection() {
+    setDapodikLoading("test");
+    setNotice("");
+    try {
+      const result = await api("/dapodik/test", { method: "POST", body: JSON.stringify(dapodikForm) });
+      setNotice(`Koneksi Dapodik berhasil: ${result.school?.name || "Sekolah ditemukan"}.`);
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setDapodikLoading("");
+    }
+  }
+
+  async function previewDapodik() {
+    setDapodikLoading("preview");
+    setNotice("");
+    try {
+      const result = await api("/dapodik/preview", { method: "POST", body: JSON.stringify(dapodikForm) });
+      setDapodikPreview(result);
+      setNotice(`Preview Dapodik berhasil: ${result.preview?.students?.total || 0} siswa dan ${result.preview?.teachers?.total || 0} guru terbaca.`);
+    } catch (error) {
+      setDapodikPreview(null);
+      setNotice(error.message);
+    } finally {
+      setDapodikLoading("");
+    }
+  }
+
+  async function syncDapodik() {
+    const ok = window.confirm("Sinkron data dari Dapodik sekarang? Data siswa, guru, rombel, agama, dan mapel pilihan akan diperbarui. Username dan password yang sudah ada tetap dipertahankan.");
+    if (!ok) return;
+    setDapodikLoading("sync");
+    setNotice("");
+    try {
+      const result = await api("/dapodik/sync", { method: "POST", body: JSON.stringify(dapodikForm) });
+      const studentResult = result.result?.students || {};
+      const teacherResult = result.result?.teachers || {};
+      setNotice(`Sinkron Dapodik selesai: ${studentResult.created || 0} siswa baru, ${studentResult.updated || 0} siswa diperbarui, ${teacherResult.created || 0} guru baru, ${teacherResult.updated || 0} guru diperbarui.`);
+      setDapodikPreview(result);
+      onChanged?.();
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setDapodikLoading("");
+    }
+  }
+
+  return (
+    <section className="panel">
+      <PanelTitle icon={RefreshCw} title="Sinkron Dapodik" />
+      <div className="import-box import-box-modal">
+        <strong>Import Data Dapodik</strong>
+        <p>Data yang ditarik: siswa, guru, rombongan belajar, NIS/NISN, kelas, jenis kelamin, agama, dan mapel pilihan. Password tetap dibuat oleh aplikasi ujian.</p>
+        <p>Jika data dari Dapodik belum sesuai, data tetap bisa diedit manual setelah sinkronisasi.</p>
+        <p>Guru baru dari Dapodik akan dibuat sebagai akun guru, lalu passwordnya bisa admin atur dari menu Data Guru.</p>
+        {notice ? <div className={notice.toLowerCase().includes("gagal") || notice.toLowerCase().includes("wajib") ? "error-box" : "success-box"}>{notice}</div> : null}
+        <div className="inline-fields">
+          <label>Base URL Dapodik
+            <input value={dapodikForm.baseUrl} onChange={(event) => setDapodikForm({ ...dapodikForm, baseUrl: event.target.value })} placeholder="http://localhost:5774" />
+          </label>
+          <label>NPSN
+            <input value={dapodikForm.npsn} onChange={(event) => setDapodikForm({ ...dapodikForm, npsn: event.target.value })} />
+          </label>
+        </div>
+        <label>Token Web Service
+          <input type="password" value={dapodikForm.token} onChange={(event) => setDapodikForm({ ...dapodikForm, token: event.target.value })} placeholder="Tempel token Dapodik" />
+        </label>
+        <div className="form-actions">
+          <button type="button" className="ghost-button" onClick={testDapodikConnection} disabled={!!dapodikLoading}>
+            <RefreshCw size={18} /> {dapodikLoading === "test" ? "Menguji..." : "Tes Koneksi"}
+          </button>
+          <button type="button" className="ghost-button" onClick={previewDapodik} disabled={!!dapodikLoading}>
+            <ListChecks size={18} /> {dapodikLoading === "preview" ? "Membaca..." : "Preview Data"}
+          </button>
+          <button type="button" onClick={syncDapodik} disabled={!!dapodikLoading || !dapodikPreview}>
+            <Save size={18} /> {dapodikLoading === "sync" ? "Sinkron..." : "Sinkronkan"}
+          </button>
+        </div>
+        {dapodikPreview ? (
+          <div className="sample-table dapodik-summary">
+            <div>Data</div><div>Total Dapodik</div><div>Baru</div><div>Diperbarui</div><div>Tidak Berubah</div>
+            <div>Siswa</div><div>{dapodikPreview.preview?.students?.total || 0}</div><div>{dapodikPreview.preview?.students?.created || 0}</div><div>{dapodikPreview.preview?.students?.updated || 0}</div><div>{dapodikPreview.preview?.students?.unchanged || 0}</div>
+            <div>Guru</div><div>{dapodikPreview.preview?.teachers?.total || 0}</div><div>{dapodikPreview.preview?.teachers?.created || 0}</div><div>{dapodikPreview.preview?.teachers?.updated || 0}</div><div>{dapodikPreview.preview?.teachers?.unchanged || 0}</div>
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function SettingsDashboard({ accessControl, examSettings, onAccessControlChanged, onExamSettingsChanged, onDataChanged }) {
   return (
     <div className="page-stack">
       <ExamSettingsPanel examSettings={examSettings} onChanged={onExamSettingsChanged} />
+      <DapodikSyncPanel onChanged={onDataChanged} />
       <AccessControlPanel accessControl={accessControl} onChanged={onAccessControlChanged} />
       <AdminAccountsPanel />
     </div>
@@ -4263,9 +4524,10 @@ function ResultsDashboard({ results, students, exams, questions = [], violations
   );
 }
 
-function ImageUploadField({ label, value, onChange, compact = false, buttonText = "Upload Gambar" }) {
+function ImageUploadField({ label, value, onChange, size = "medium", onSizeChange, compact = false, buttonText = "Upload Gambar" }) {
   const [meta, setMeta] = useState("");
   const [error, setError] = useState("");
+  const selectedSize = normalizeImageSize(size);
 
   async function upload(event) {
     const file = event.target.files?.[0];
@@ -4293,6 +4555,11 @@ function ImageUploadField({ label, value, onChange, compact = false, buttonText 
           {buttonText}
           <input type="file" accept="image/*" onChange={upload} />
         </label>
+        {onSizeChange ? (
+          <select className="image-size-select" value={selectedSize} onChange={(event) => onSizeChange(event.target.value)} aria-label={`Ukuran tampilan ${label}`}>
+            {IMAGE_SIZE_OPTIONS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
+          </select>
+        ) : null}
         {value ? <button type="button" className="danger-button compact-danger" onClick={() => { onChange(""); setMeta(""); }}>Hapus</button> : null}
         {meta ? <span>{meta}</span> : null}
         {error ? <p className="error-text">{error}</p> : null}
@@ -4307,11 +4574,21 @@ function ImageUploadField({ label, value, onChange, compact = false, buttonText 
         {value ? <button type="button" className="danger-button" onClick={() => { onChange(""); setMeta(""); }}>Hapus</button> : null}
       </div>
       {value ? <img src={value} alt={label} /> : null}
-      <label className="file-button">
-        <Upload size={18} />
-        Upload Gambar
-        <input type="file" accept="image/*" onChange={upload} />
-      </label>
+      <div className="image-upload-actions">
+        <label className="file-button">
+          <Upload size={18} />
+          Upload Gambar
+          <input type="file" accept="image/*" onChange={upload} />
+        </label>
+        {onSizeChange ? (
+          <label className="image-size-control">
+            Ukuran
+            <select value={selectedSize} onChange={(event) => onSizeChange(event.target.value)}>
+              {IMAGE_SIZE_OPTIONS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
+            </select>
+          </label>
+        ) : null}
+      </div>
       <p className="muted">{meta || "Gambar akan otomatis disesuaikan untuk HP/tablet dan maksimal 500 KB."}</p>
       {error ? <p className="error-text">{error}</p> : null}
     </div>
@@ -4337,7 +4614,7 @@ function QuestionEditor({ form, setForm, exams, onSubmit, editingId, onCancel })
     const used = new Set(activeOptions.map((option) => option.key));
     const nextKey = OPTION_KEYS.find((key) => !used.has(key));
     if (!nextKey) return;
-    setForm({ ...form, options: [...activeOptions, { key: nextKey, text: "", image: "" }] });
+    setForm({ ...form, options: [...activeOptions, { key: nextKey, text: "", image: "", imageSize: "medium" }] });
   }
 
   function removeOption(key) {
@@ -4392,7 +4669,15 @@ function QuestionEditor({ form, setForm, exams, onSubmit, editingId, onCancel })
       <div className="question-body-field">
         <div className="field-label-row">
           <span>Soal</span>
-          <ImageUploadField label="Gambar Soal" value={form.image} onChange={(image) => setForm({ ...form, image })} compact buttonText="Upload Gambar Soal" />
+          <ImageUploadField
+            label="Gambar Soal"
+            value={form.image}
+            size={form.imageSize}
+            onChange={(image) => setForm({ ...form, image })}
+            onSizeChange={(imageSize) => setForm({ ...form, imageSize })}
+            compact
+            buttonText="Upload Gambar Soal"
+          />
         </div>
         <textarea value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} placeholder="Tulis pertanyaan..." required />
         <p className="muted">Semua gambar otomatis dikompres maksimal 500 KB dan disesuaikan untuk layar HP/tablet.</p>
@@ -4410,7 +4695,15 @@ function QuestionEditor({ form, setForm, exams, onSubmit, editingId, onCancel })
                 <div className="option-editor-head">
                   <strong>Opsi {option.key}</strong>
                   <div className="option-head-actions">
-                    <ImageUploadField label={`Gambar Opsi ${option.key}`} value={option.image || ""} onChange={(image) => updateOption(index, { image })} compact buttonText="Gambar" />
+                    <ImageUploadField
+                      label={`Gambar Opsi ${option.key}`}
+                      value={option.image || ""}
+                      size={option.imageSize}
+                      onChange={(image) => updateOption(index, { image })}
+                      onSizeChange={(imageSize) => updateOption(index, { imageSize })}
+                      compact
+                      buttonText="Gambar"
+                    />
                     {activeOptions.length > 2 ? <button type="button" className="danger-button compact-danger" onClick={() => removeOption(option.key)}><Trash2 size={15} /></button> : null}
                   </div>
                 </div>
@@ -4439,14 +4732,22 @@ function QuestionEditor({ form, setForm, exams, onSubmit, editingId, onCancel })
         <div className="dynamic-section">
           <div className="section-head">
             <strong>Pernyataan Benar / Salah</strong>
-            <button type="button" className="ghost-button" onClick={() => setForm({ ...form, statements: [...form.statements, { id: `st-${Date.now()}`, text: "", image: "", answer: "true" }] })}><Plus size={16} /> Tambah Pernyataan</button>
+            <button type="button" className="ghost-button" onClick={() => setForm({ ...form, statements: [...form.statements, { id: `st-${Date.now()}`, text: "", image: "", imageSize: "medium", answer: "true" }] })}><Plus size={16} /> Tambah Pernyataan</button>
           </div>
           {form.statements.map((statement, index) => (
             <div className="statement-editor compact-statement-editor" key={statement.id}>
               <div className="option-editor-head">
                 <strong>Pernyataan {index + 1}</strong>
                 <div className="option-head-actions">
-                  <ImageUploadField label={`Gambar Pernyataan ${index + 1}`} value={statement.image || ""} onChange={(image) => updateStatement(index, { image })} compact buttonText="Gambar" />
+                  <ImageUploadField
+                    label={`Gambar Pernyataan ${index + 1}`}
+                    value={statement.image || ""}
+                    size={statement.imageSize}
+                    onChange={(image) => updateStatement(index, { image })}
+                    onSizeChange={(imageSize) => updateStatement(index, { imageSize })}
+                    compact
+                    buttonText="Gambar"
+                  />
                   {form.statements.length > 1 ? <button type="button" className="danger-button compact-danger" onClick={() => setForm({ ...form, statements: form.statements.filter((item) => item.id !== statement.id) })}><Trash2 size={15} /></button> : null}
                 </div>
               </div>
@@ -4468,8 +4769,19 @@ function QuestionEditor({ form, setForm, exams, onSubmit, editingId, onCancel })
         <div className="dynamic-section">
           <div className="section-head">
             <strong>Pasangan Jawaban</strong>
-            <button type="button" className="ghost-button" onClick={() => setForm({ ...form, pairs: [...form.pairs, { id: `pair-${Date.now()}`, left: "", right: "", leftImage: "", rightImage: "" }] })}><Plus size={16} /> Tambah Pasangan</button>
+            <button type="button" className="ghost-button" onClick={() => setForm({ ...form, pairs: [...form.pairs, { id: `pair-${Date.now()}`, left: "", right: "", leftImage: "", rightImage: "", leftImageSize: "medium", rightImageSize: "medium" }] })}><Plus size={16} /> Tambah Pasangan</button>
           </div>
+          <label>
+            Mode Jawab Siswa
+            <select
+              value={form.answerRules?.matchingMode === "dropdown" ? "dropdown" : "drag"}
+              onChange={(event) => setForm({ ...form, answerRules: { ...form.answerRules, matchingMode: event.target.value } })}
+            >
+              <option value="drag">Tarik Pasangan</option>
+              <option value="dropdown">Dropdown Aman</option>
+            </select>
+          </label>
+          <p className="muted">Tarik Pasangan menjadi tampilan utama. Di HP siswa tetap bisa tap Kolom A lalu tap jawaban Kolom B agar tidak bentrok dengan scroll.</p>
           {form.pairs.map((pair, index) => (
             <div className="matching-editor compact-matching-editor" key={pair.id}>
               <div className="matching-pair-head">
@@ -4479,14 +4791,30 @@ function QuestionEditor({ form, setForm, exams, onSubmit, editingId, onCancel })
               <div className="matching-field">
                 <div className="field-label-row">
                   <span>Kolom Kiri</span>
-                  <ImageUploadField label={`Gambar Kiri ${index + 1}`} value={pair.leftImage || ""} onChange={(image) => updatePair(index, { leftImage: image })} compact buttonText="Gambar" />
+                  <ImageUploadField
+                    label={`Gambar Kiri ${index + 1}`}
+                    value={pair.leftImage || ""}
+                    size={pair.leftImageSize}
+                    onChange={(image) => updatePair(index, { leftImage: image })}
+                    onSizeChange={(leftImageSize) => updatePair(index, { leftImageSize })}
+                    compact
+                    buttonText="Gambar"
+                  />
                 </div>
                 <input value={pair.left} placeholder="Isi kolom kiri..." onChange={(event) => updatePair(index, { left: event.target.value })} />
               </div>
               <div className="matching-field">
                 <div className="field-label-row">
                   <span>Jawaban Pasangan</span>
-                  <ImageUploadField label={`Gambar Jawaban ${index + 1}`} value={pair.rightImage || ""} onChange={(image) => updatePair(index, { rightImage: image })} compact buttonText="Gambar" />
+                  <ImageUploadField
+                    label={`Gambar Jawaban ${index + 1}`}
+                    value={pair.rightImage || ""}
+                    size={pair.rightImageSize}
+                    onChange={(image) => updatePair(index, { rightImage: image })}
+                    onSizeChange={(rightImageSize) => updatePair(index, { rightImageSize })}
+                    compact
+                    buttonText="Gambar"
+                  />
                 </div>
                 <input value={pair.right} placeholder="Isi jawaban pasangan..." onChange={(event) => updatePair(index, { right: event.target.value })} />
               </div>
@@ -4535,8 +4863,44 @@ function QuestionEditor({ form, setForm, exams, onSubmit, editingId, onCancel })
   );
 }
 
-function QuestionImage({ src, alt }) {
-  return src ? <img className="question-image" src={src} alt={alt} /> : null;
+function QuestionImage({ src, alt, size = "medium" }) {
+  const [previewOpen, setPreviewOpen] = useState(false);
+  if (!src) return null;
+  const normalizedSize = normalizeImageSize(size);
+  return (
+    <>
+      <img
+        className={`question-image question-image-${normalizedSize}`}
+        src={src}
+        alt={alt}
+        role="button"
+        tabIndex={0}
+        title="Klik untuk memperbesar gambar"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setPreviewOpen(true);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setPreviewOpen(true);
+          }
+        }}
+      />
+      {previewOpen ? (
+        <div className="image-preview-backdrop" role="dialog" aria-modal="true" aria-label={alt} onClick={() => setPreviewOpen(false)}>
+          <div className="image-preview-panel" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-head">
+              <strong>Preview Gambar</strong>
+              <button type="button" className="ghost-button" onClick={() => setPreviewOpen(false)}>Tutup</button>
+            </div>
+            <img src={src} alt={alt} />
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
 }
 
 function QuestionSummary({ question, index, showAnswers = true }) {
@@ -4544,13 +4908,13 @@ function QuestionSummary({ question, index, showAnswers = true }) {
     <article>
       <span>Soal {index + 1} | {questionTypeLabel(question.type)}</span>
       <p>{question.body}</p>
-      <QuestionImage src={question.image} alt={`Gambar soal ${index + 1}`} />
+      <QuestionImage src={question.image} size={question.imageSize} alt={`Gambar soal ${index + 1}`} />
       {["multiple_choice", "multiple_response"].includes(question.type) ? (
         <div className="mini-options">
           {(question.options || []).map((option) => (
             <code key={option.key}>
               {option.key}. {option.text || "[Gambar]"}
-              <QuestionImage src={option.image} alt={`Gambar opsi ${option.key}`} />
+              <QuestionImage src={option.image} size={option.imageSize} alt={`Gambar opsi ${option.key}`} />
             </code>
           ))}
         </div>
@@ -4607,7 +4971,7 @@ function QuestionCompactSummary({ question, index }) {
         {needsReview ? <span className="status-pill revision">Perlu Dicek</span> : <span className="status-pill selected">Lengkap</span>}
       </div>
       <p>{question.body}</p>
-      {question.image ? <QuestionImage src={question.image} alt={`Gambar soal ${index + 1}`} /> : null}
+      {question.image ? <QuestionImage src={question.image} size={question.imageSize} alt={`Gambar soal ${index + 1}`} /> : null}
     </article>
   );
 }
@@ -5137,7 +5501,7 @@ function TeacherQuestionTest({ exams, questions }) {
           <span>{isQuestionAnswered(question, answers[question.id]) ? "Sudah dijawab" : "Belum dijawab"}</span>
         </div>
         <p>{question.body}</p>
-        <QuestionImage src={question.image} alt={`Gambar soal ${index + 1}`} />
+        <QuestionImage src={question.image} size={question.imageSize} alt={`Gambar soal ${index + 1}`} />
         {question.type === "multiple_response" ? (
           <div className="answer-options">
             {(question.options || []).map((option, optionIndex) => (
@@ -5148,7 +5512,7 @@ function TeacherQuestionTest({ exams, questions }) {
                   onChange={(event) => toggleMulti(question.id, option.key, event.target.checked)}
                 />
                 <span>{displayOptionLabel(optionIndex)}</span>
-                <div>{option.text}<QuestionImage src={option.image} alt={`Gambar opsi ${option.key}`} /></div>
+                <div>{option.text}<QuestionImage src={option.image} size={option.imageSize} alt={`Gambar opsi ${option.key}`} /></div>
               </label>
             ))}
           </div>
@@ -5164,7 +5528,7 @@ function TeacherQuestionTest({ exams, questions }) {
                   onChange={() => choose(question.id, option.key)}
                 />
                 <span>{displayOptionLabel(optionIndex)}</span>
-                <div>{option.text}<QuestionImage src={option.image} alt={`Gambar opsi ${option.key}`} /></div>
+                <div>{option.text}<QuestionImage src={option.image} size={option.imageSize} alt={`Gambar opsi ${option.key}`} /></div>
               </label>
             ))}
           </div>
@@ -5174,7 +5538,7 @@ function TeacherQuestionTest({ exams, questions }) {
             {(question.statements || []).map((statement, statementIndex) => (
               <div className="statement-answer" key={statement.id}>
                 <p>{statementIndex + 1}. {statement.text}</p>
-                <QuestionImage src={statement.image} alt={`Gambar pernyataan ${statementIndex + 1}`} />
+                <QuestionImage src={statement.image} size={statement.imageSize} alt={`Gambar pernyataan ${statementIndex + 1}`} />
                 <div className="row-actions">
                   <label><input type="radio" name={`test-${question.id}-${statement.id}`} checked={answers[question.id]?.[statement.id] === "true"} onChange={() => chooseNested(question.id, statement.id, "true")} /> Benar</label>
                   <label><input type="radio" name={`test-${question.id}-${statement.id}`} checked={answers[question.id]?.[statement.id] === "false"} onChange={() => chooseNested(question.id, statement.id, "false")} /> Salah</label>
@@ -5184,21 +5548,12 @@ function TeacherQuestionTest({ exams, questions }) {
           </div>
         ) : null}
         {question.type === "matching" ? (
-          <div className="matching-answer-list">
-            {(question.pairs || []).map((pair, pairIndex) => {
-              const options = question.matchingOptions || (question.pairs || []).map((item) => ({ value: item.right, image: item.rightImage || "" }));
-              return (
-                <label className="matching-answer" key={pair.id}>
-                  <span>{pairIndex + 1}. {pair.left}</span>
-                  <QuestionImage src={pair.leftImage} alt={`Gambar pasangan ${pairIndex + 1}`} />
-                  <select value={answers[question.id]?.[pair.id] || ""} onChange={(event) => chooseNested(question.id, pair.id, event.target.value)}>
-                    <option value="">Pilih pasangan...</option>
-                    {options.map((option) => <option value={option.value} key={option.value}>{option.value}</option>)}
-                  </select>
-                </label>
-              );
-            })}
-          </div>
+          <MatchingAnswerInput
+            question={question}
+            answer={answers[question.id]}
+            onChange={(pairId, value) => chooseNested(question.id, pairId, value)}
+            onReset={() => choose(question.id, {})}
+          />
         ) : null}
         {question.type === "short_answer" ? (
           <input
@@ -6051,7 +6406,7 @@ function ExamTaking({ session, onFinished }) {
               <span>{isQuestionAnswered(currentQuestion, answers[currentQuestion.id]) ? "Sudah dijawab" : "Belum dijawab"}</span>
             </div>
             <p>{currentQuestion.body}</p>
-            <QuestionImage src={currentQuestion.image} alt={`Gambar soal ${currentIndex + 1}`} />
+            <QuestionImage src={currentQuestion.image} size={currentQuestion.imageSize} alt={`Gambar soal ${currentIndex + 1}`} />
             {currentQuestion.type === "multiple_response" ? (
               <div className="answer-options">
                 {(currentQuestion.options || []).map((option, optionIndex) => (
@@ -6062,7 +6417,7 @@ function ExamTaking({ session, onFinished }) {
                       onChange={(event) => toggleMulti(currentQuestion.id, option.key, event.target.checked)}
                     />
                     <span>{displayOptionLabel(optionIndex)}</span>
-                    <div>{option.text}<QuestionImage src={option.image} alt={`Gambar opsi ${option.key}`} /></div>
+                    <div>{option.text}<QuestionImage src={option.image} size={option.imageSize} alt={`Gambar opsi ${option.key}`} /></div>
                   </label>
                 ))}
               </div>
@@ -6078,7 +6433,7 @@ function ExamTaking({ session, onFinished }) {
                       onChange={() => choose(currentQuestion.id, option.key)}
                     />
                     <span>{displayOptionLabel(optionIndex)}</span>
-                    <div>{option.text}<QuestionImage src={option.image} alt={`Gambar opsi ${option.key}`} /></div>
+                    <div>{option.text}<QuestionImage src={option.image} size={option.imageSize} alt={`Gambar opsi ${option.key}`} /></div>
                   </label>
                 ))}
               </div>
@@ -6088,7 +6443,7 @@ function ExamTaking({ session, onFinished }) {
                 {(currentQuestion.statements || []).map((statement, statementIndex) => (
                   <div className="statement-answer" key={statement.id}>
                     <p>{statementIndex + 1}. {statement.text}</p>
-                    <QuestionImage src={statement.image} alt={`Gambar pernyataan ${statementIndex + 1}`} />
+                    <QuestionImage src={statement.image} size={statement.imageSize} alt={`Gambar pernyataan ${statementIndex + 1}`} />
                     <div className="row-actions">
                       <label><input type="radio" name={`${currentQuestion.id}-${statement.id}`} checked={answers[currentQuestion.id]?.[statement.id] === "true"} onChange={() => chooseNested(currentQuestion.id, statement.id, "true")} /> Benar</label>
                       <label><input type="radio" name={`${currentQuestion.id}-${statement.id}`} checked={answers[currentQuestion.id]?.[statement.id] === "false"} onChange={() => chooseNested(currentQuestion.id, statement.id, "false")} /> Salah</label>
@@ -6098,18 +6453,12 @@ function ExamTaking({ session, onFinished }) {
               </div>
             ) : null}
             {currentQuestion.type === "matching" ? (
-              <div className="matching-answer-list">
-                {(currentQuestion.pairs || []).map((pair, pairIndex) => (
-                  <label className="matching-answer" key={pair.id}>
-                    <span>{pairIndex + 1}. {pair.left}</span>
-                    <QuestionImage src={pair.leftImage} alt={`Gambar pasangan ${pairIndex + 1}`} />
-                    <select value={answers[currentQuestion.id]?.[pair.id] || ""} onChange={(event) => chooseNested(currentQuestion.id, pair.id, event.target.value)}>
-                      <option value="">Pilih pasangan...</option>
-                      {(currentQuestion.matchingOptions || []).map((option) => <option value={option.value} key={option.value}>{option.value}</option>)}
-                    </select>
-                  </label>
-                ))}
-              </div>
+              <MatchingAnswerInput
+                question={currentQuestion}
+                answer={answers[currentQuestion.id]}
+                onChange={(pairId, value) => chooseNested(currentQuestion.id, pairId, value)}
+                onReset={() => choose(currentQuestion.id, {})}
+              />
             ) : null}
             {currentQuestion.type === "short_answer" ? (
               <input
@@ -6631,7 +6980,7 @@ function App() {
       return <MonitoringDashboard attempts={attempts} students={students} exams={exams} violations={violations} activeTab={monitoringTab} onTabChange={setMonitoringTab} onChanged={refresh} canDeleteViolations={user.role === "admin"} />;
     }
     if (view === "settings") {
-      return <SettingsDashboard accessControl={accessControl} examSettings={examSettings} onAccessControlChanged={setAccessControl} onExamSettingsChanged={setExamSettings} />;
+      return <SettingsDashboard accessControl={accessControl} examSettings={examSettings} onAccessControlChanged={setAccessControl} onExamSettingsChanged={setExamSettings} onDataChanged={refresh} />;
     }
     return <AdminDashboard summary={summary} students={students} exams={exams} questions={questions} attempts={attempts} results={results} violations={violations} />;
   }

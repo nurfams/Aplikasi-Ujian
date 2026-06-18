@@ -20,10 +20,14 @@ CREATE TABLE IF NOT EXISTS users (
   username TEXT NOT NULL UNIQUE,
   password TEXT NOT NULL,
   class_name TEXT,
-  subjects JSONB NOT NULL DEFAULT '[]'::jsonb
+  subjects JSONB NOT NULL DEFAULT '[]'::jsonb,
+  dapodik_id TEXT,
+  dapodik_synced_at TIMESTAMPTZ
 );
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS subjects JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS dapodik_id TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS dapodik_synced_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS students (
   id TEXT PRIMARY KEY,
@@ -37,13 +41,17 @@ CREATE TABLE IF NOT EXISTS students (
   class_name TEXT NOT NULL,
   elective_subjects JSONB NOT NULL DEFAULT '[]'::jsonb,
   room TEXT,
-  session TEXT
+  session TEXT,
+  dapodik_id TEXT,
+  dapodik_synced_at TIMESTAMPTZ
 );
 
 ALTER TABLE students ADD COLUMN IF NOT EXISTS elective_subjects JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE students ADD COLUMN IF NOT EXISTS nisn TEXT;
 ALTER TABLE students ADD COLUMN IF NOT EXISTS gender TEXT;
 ALTER TABLE students ADD COLUMN IF NOT EXISTS religion TEXT;
+ALTER TABLE students ADD COLUMN IF NOT EXISTS dapodik_id TEXT;
+ALTER TABLE students ADD COLUMN IF NOT EXISTS dapodik_synced_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS exams (
   id TEXT PRIMARY KEY,
@@ -167,6 +175,8 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 
 CREATE INDEX IF NOT EXISTS idx_students_class_name ON students(class_name);
 CREATE INDEX IF NOT EXISTS idx_students_religion ON students(religion);
+CREATE INDEX IF NOT EXISTS idx_students_dapodik_id ON students(dapodik_id);
+CREATE INDEX IF NOT EXISTS idx_users_dapodik_id ON users(dapodik_id);
 CREATE INDEX IF NOT EXISTS idx_exams_status ON exams(status);
 CREATE INDEX IF NOT EXISTS idx_questions_exam_id ON questions(exam_id);
 CREATE INDEX IF NOT EXISTS idx_attempts_exam_id ON attempts(exam_id);
@@ -196,7 +206,9 @@ function mapUser(row) {
     username: row.username,
     password: row.password,
     className: row.class_name || undefined,
-    subjects: row.subjects || []
+    subjects: row.subjects || [],
+    dapodikId: row.dapodik_id || "",
+    dapodikSyncedAt: toIso(row.dapodik_synced_at)
   };
 }
 
@@ -232,7 +244,9 @@ function mapStudent(row) {
     className: row.class_name,
     electiveSubjects: row.elective_subjects || [],
     room: row.room || "-",
-    session: row.session || "-"
+    session: row.session || "-",
+    dapodikId: row.dapodik_id || "",
+    dapodikSyncedAt: toIso(row.dapodik_synced_at)
   };
 }
 
@@ -709,23 +723,25 @@ async function upsertRows(client, rows, upsert) {
 
 function upsertUser(client, row) {
   return client.query(
-    `INSERT INTO users (id, role, name, username, password, class_name, subjects)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+    `INSERT INTO users (id, role, name, username, password, class_name, subjects, dapodik_id, dapodik_synced_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
      ON CONFLICT (id) DO UPDATE SET
        role = EXCLUDED.role,
        name = EXCLUDED.name,
        username = EXCLUDED.username,
        password = EXCLUDED.password,
        class_name = EXCLUDED.class_name,
-       subjects = EXCLUDED.subjects`,
-    [row.id, row.role, row.name, row.username, row.password, row.className || null, JSON.stringify(row.subjects || [])]
+       subjects = EXCLUDED.subjects,
+       dapodik_id = EXCLUDED.dapodik_id,
+       dapodik_synced_at = EXCLUDED.dapodik_synced_at`,
+    [row.id, row.role, row.name, row.username, row.password, row.className || null, JSON.stringify(row.subjects || []), row.dapodikId || null, row.dapodikSyncedAt || null]
   );
 }
 
 function upsertStudent(client, row) {
   return client.query(
-    `INSERT INTO students (id, nis, nisn, name, gender, religion, username, password, class_name, elective_subjects, room, session)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12)
+    `INSERT INTO students (id, nis, nisn, name, gender, religion, username, password, class_name, elective_subjects, room, session, dapodik_id, dapodik_synced_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $14)
      ON CONFLICT (id) DO UPDATE SET
        nis = EXCLUDED.nis,
        nisn = EXCLUDED.nisn,
@@ -737,8 +753,10 @@ function upsertStudent(client, row) {
        class_name = EXCLUDED.class_name,
        elective_subjects = EXCLUDED.elective_subjects,
        room = EXCLUDED.room,
-       session = EXCLUDED.session`,
-    [row.id, row.nis, row.nisn || "", row.name, row.gender || "", row.religion || "", row.username, row.password, row.className, JSON.stringify(row.electiveSubjects || []), row.room || "-", row.session || "-"]
+       session = EXCLUDED.session,
+       dapodik_id = EXCLUDED.dapodik_id,
+       dapodik_synced_at = EXCLUDED.dapodik_synced_at`,
+    [row.id, row.nis, row.nisn || "", row.name, row.gender || "", row.religion || "", row.username, row.password, row.className, JSON.stringify(row.electiveSubjects || []), row.room || "-", row.session || "-", row.dapodikId || null, row.dapodikSyncedAt || null]
   );
 }
 

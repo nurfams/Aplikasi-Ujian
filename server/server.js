@@ -39,6 +39,9 @@ const accessTokenChars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const examClientHeartbeatTimeoutMs = Number(process.env.EXAM_CLIENT_HEARTBEAT_TIMEOUT_SECONDS || 25) * 1000;
 const examClientHeartbeatRepeatMs = Number(process.env.EXAM_CLIENT_HEARTBEAT_REPEAT_SECONDS || 120) * 1000;
 const postgresStoreCacheMs = Number(process.env.POSTGRES_STORE_CACHE_MS || 2000);
+const dapodikDefaultBaseUrl = process.env.DAPODIK_BASE_URL || "";
+const dapodikDefaultNpsn = process.env.DAPODIK_NPSN || "";
+const dapodikDefaultToken = process.env.DAPODIK_TOKEN || "";
 
 app.use(cors());
 app.use(express.json({ limit: "8mb" }));
@@ -511,6 +514,314 @@ function createStudentPassword(length = 6) {
   return password;
 }
 
+function slugUsername(value, fallback = "user") {
+  const text = String(value || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 32);
+  return text || fallback;
+}
+
+function uniqueUsername(store, base, currentId = "") {
+  const normalizedBase = slugUsername(base, "user");
+  const used = new Set(store.users.filter((user) => user.id !== currentId).map((user) => String(user.username || "").toLowerCase()));
+  let candidate = normalizedBase;
+  let index = 2;
+  while (used.has(candidate.toLowerCase())) {
+    candidate = `${normalizedBase}_${index}`;
+    index += 1;
+  }
+  return candidate;
+}
+
+function normalizeDapodikConfig(body = {}) {
+  const baseUrl = String(body.baseUrl || dapodikDefaultBaseUrl || "").trim().replace(/\/+$/, "");
+  const npsn = String(body.npsn || dapodikDefaultNpsn || "").trim();
+  const token = String(body.token || dapodikDefaultToken || "").trim();
+  if (!baseUrl || !/^https?:\/\//i.test(baseUrl)) throw new Error("Base URL Dapodik wajib diisi dengan http:// atau https://.");
+  if (!npsn) throw new Error("NPSN Dapodik wajib diisi.");
+  if (!token) throw new Error("Token Dapodik wajib diisi.");
+  return { baseUrl, npsn, token };
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchDapodikResourceOnce(resource, config) {
+  const allowed = new Set(["getSekolah", "getPengguna", "getRombonganBelajar", "getGtk", "getPesertaDidik"]);
+  if (!allowed.has(resource)) throw new Error("Resource Dapodik tidak didukung.");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const url = `${config.baseUrl}/WebService/${resource}?npsn=${encodeURIComponent(config.npsn)}`;
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${config.token}`
+      },
+      signal: controller.signal
+    });
+    const rawText = await response.text();
+    if (!response.ok) throw new Error(`Dapodik ${resource} gagal (${response.status}).`);
+    const startIndex = Math.min(
+      ...["{", "["].map((marker) => {
+        const index = rawText.indexOf(marker);
+        return index >= 0 ? index : Number.POSITIVE_INFINITY;
+      })
+    );
+    if (!Number.isFinite(startIndex)) {
+      const message = rawText.replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim().slice(0, 240);
+      throw new Error(`Dapodik ${resource} mengirim respons non-JSON: ${message || "respons kosong"}`);
+    }
+    const parsed = JSON.parse(rawText.slice(startIndex));
+    if (parsed?.success === false) throw new Error(parsed?.message || `Dapodik ${resource} gagal.`);
+    if (Array.isArray(parsed)) return parsed;
+    if (Array.isArray(parsed.rows)) return parsed.rows;
+    if (parsed?.rows && typeof parsed.rows === "object") return parsed.rows;
+    if (Array.isArray(parsed.data)) return parsed.data;
+    if (parsed?.data && typeof parsed.data === "object") return parsed.data;
+    return parsed;
+  } catch (error) {
+    if (error.name === "AbortError") throw new Error(`Koneksi Dapodik ${resource} timeout.`);
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchDapodikResource(resource, config) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await fetchDapodikResourceOnce(resource, config);
+    } catch (error) {
+      lastError = error;
+      const retryable = /tidak terhubung dengan database|timeout|ECONNRESET|socket hang up/i.test(String(error.message || ""));
+      if (!retryable || attempt === 3) break;
+      await wait(700 * attempt);
+    }
+  }
+  throw lastError;
+}
+
+function asArray(value) {
+  if (Array.isArray(value)) return value;
+  if (!value) return [];
+  return [value];
+}
+
+function mapDapodikStudent(row = {}) {
+  const nis = String(row.nipd || row.nis || row.NIS || row.nisn || row.peserta_didik_id || "").trim();
+  const nisn = String(row.nisn || "").trim();
+  return {
+    dapodikId: String(row.peserta_didik_id || "").trim(),
+    nis,
+    nisn,
+    name: String(row.nama || "").trim(),
+    gender: String(row.jenis_kelamin || "").trim(),
+    religion: String(row.agama_id_str || row.agama || "").trim(),
+    className: String(row.nama_rombel || row.rombongan_belajar || row.kelas || "-").trim() || "-",
+    room: "-",
+    session: "-"
+  };
+}
+
+function normalizeDapodikSubjectName(value) {
+  return String(value || "")
+    .replace(/\b(Pendidikan|Mata\s*Pelajaran|Mapel|Pilihan)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function toTitleCaseIndonesian(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\b([a-z])/g, (letter) => letter.toUpperCase());
+}
+
+const DAPODIK_ELECTIVE_ALIASES = [
+  [/^MTL\b/i, "Matematika Tingkat Lanjut"],
+  [/^MATEMATIKA\s*(TL|TINGKAT\s*LANJUT|LANJUT)\b/i, "Matematika Tingkat Lanjut"],
+  [/^STL\b/i, "Sejarah Tingkat Lanjut"],
+  [/^SEJARAH\s*(TL|TINGKAT\s*LANJUT|LANJUT)\b/i, "Sejarah Tingkat Lanjut"],
+  [/^INFOR(MATIKA)?\b/i, "Informatika"],
+  [/^BIO(LOGI)?\b/i, "Biologi"],
+  [/^FIS(IKA)?\b/i, "Fisika"],
+  [/^KIM(IA)?\b/i, "Kimia"],
+  [/^EKO(NOMI)?\b/i, "Ekonomi"],
+  [/^GEO(GRAFI)?\b/i, "Geografi"],
+  [/^SOS(IOLOGI)?\b/i, "Sosiologi"],
+  [/^PKWU\b/i, "Prakarya dan Kewirausahaan"]
+];
+
+function isDapodikElectiveRombel(rombel = {}) {
+  const typeText = String(rombel.jenis_rombel_str || "").toLowerCase();
+  const typeCode = String(rombel.jenis_rombel || "").trim();
+  return typeText.includes("pilihan") || typeCode === "16";
+}
+
+function readDapodikSemesterId(rombel = {}) {
+  return String(rombel.semester_id || rombel.id_semester || rombel.semester || "").trim();
+}
+
+function readLatestDapodikSemesterId(classes = []) {
+  const semesters = [...new Set(classes.map(readDapodikSemesterId).filter(Boolean))];
+  semesters.sort((a, b) => {
+    const numberA = Number(a);
+    const numberB = Number(b);
+    if (Number.isFinite(numberA) && Number.isFinite(numberB)) return numberA - numberB;
+    return a.localeCompare(b, "id", { numeric: true });
+  });
+  return semesters.at(-1) || "";
+}
+
+function normalizeDapodikElectiveRombelName(rombel = {}) {
+  const rawName = String(rombel.nama || rombel.nama_rombel || "").trim();
+  if (!rawName) return "";
+
+  const cleaned = rawName
+    .replace(/^kelas\s+/i, "")
+    .replace(/^(xii|xi|x|12|11|10)[\s._-]*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const numberMatch = cleaned.match(/\b(\d+)\s*$/);
+  const suffix = numberMatch ? ` ${numberMatch[1]}` : "";
+  const base = numberMatch ? cleaned.slice(0, numberMatch.index).trim() : cleaned;
+  if (!base) return "";
+
+  for (const [pattern, replacement] of DAPODIK_ELECTIVE_ALIASES) {
+    if (pattern.test(base)) return `${replacement}${suffix}`.trim();
+  }
+
+  return `${toTitleCaseIndonesian(base)}${suffix}`.trim();
+}
+
+function readDapodikElectiveSubject(rombel = {}) {
+  const rombelName = normalizeDapodikElectiveRombelName(rombel);
+  if (rombelName) return rombelName;
+
+  const lessons = asArray(rombel.pembelajaran);
+  const lessonName = lessons
+    .map((lesson) => lesson?.nama_mata_pelajaran || lesson?.mata_pelajaran_id_str)
+    .map(normalizeDapodikSubjectName)
+    .find(Boolean);
+  if (lessonName) return lessonName;
+  return "";
+}
+
+function buildDapodikElectiveMap(classes = []) {
+  const electiveMap = new Map();
+  const electiveClasses = classes.filter(isDapodikElectiveRombel);
+  const latestSemesterId = readLatestDapodikSemesterId(electiveClasses);
+  for (const rombel of electiveClasses) {
+    if (latestSemesterId && readDapodikSemesterId(rombel) !== latestSemesterId) continue;
+    const subject = readDapodikElectiveSubject(rombel);
+    if (!subject) continue;
+    for (const member of asArray(rombel.anggota_rombel)) {
+      const studentId = String(member?.peserta_didik_id || "").trim();
+      if (!studentId) continue;
+      const subjects = electiveMap.get(studentId) || [];
+      if (!subjects.some((item) => item.toLowerCase() === subject.toLowerCase())) {
+        subjects.push(subject);
+      }
+      electiveMap.set(studentId, subjects.slice(0, 5));
+    }
+  }
+  return electiveMap;
+}
+
+function mapDapodikTeacher(row = {}) {
+  return {
+    dapodikId: String(row.ptk_id || "").trim(),
+    name: String(row.nama || "").trim(),
+    usernameBase: String(row.nip || row.nuptk || row.nama || "guru").trim()
+  };
+}
+
+function findExistingDapodikStudent(store, incoming) {
+  const dapodikId = incoming.dapodikId;
+  const nisn = incoming.nisn;
+  const nis = incoming.nis;
+  const nameKey = `${incoming.name}|${incoming.className}`.toLowerCase();
+  return store.students.find((student) => {
+    if (dapodikId && student.dapodikId === dapodikId) return true;
+    if (nisn && student.nisn === nisn) return true;
+    if (nis && student.nis === nis) return true;
+    return `${student.name}|${student.className}`.toLowerCase() === nameKey;
+  });
+}
+
+function findExistingDapodikTeacher(store, incoming) {
+  const dapodikId = incoming.dapodikId;
+  const name = incoming.name.toLowerCase();
+  return store.users.find((user) => {
+    if (user.role !== "guru") return false;
+    if (dapodikId && user.dapodikId === dapodikId) return true;
+    return String(user.name || "").toLowerCase() === name;
+  });
+}
+
+async function readDapodikSnapshot(config) {
+  const schoolRaw = await fetchDapodikResource("getSekolah", config);
+  await wait(250);
+  const studentsRaw = await fetchDapodikResource("getPesertaDidik", config);
+  await wait(250);
+  const teachersRaw = await fetchDapodikResource("getGtk", config);
+  await wait(250);
+  const classesRaw = await fetchDapodikResource("getRombonganBelajar", config);
+  const school = asArray(schoolRaw)[0] || schoolRaw || {};
+  const classes = asArray(classesRaw);
+  const electiveMap = buildDapodikElectiveMap(classes);
+  const students = asArray(studentsRaw).map((row) => {
+    const student = mapDapodikStudent(row);
+    student.electiveSubjects = electiveMap.get(student.dapodikId) || [];
+    return student;
+  }).filter((student) => student.nis && student.name);
+  const teachers = asArray(teachersRaw).map(mapDapodikTeacher).filter((teacher) => teacher.name);
+  return { school, students, teachers, classes };
+}
+
+function previewDapodikSync(store, snapshot) {
+  const students = { total: snapshot.students.length, created: 0, updated: 0, unchanged: 0, missingInDapodik: 0 };
+  const teachers = { total: snapshot.teachers.length, created: 0, updated: 0, unchanged: 0 };
+  const dapodikStudentKeys = new Set();
+
+  for (const incoming of snapshot.students) {
+    const existing = findExistingDapodikStudent(store, incoming);
+    if (incoming.dapodikId) dapodikStudentKeys.add(incoming.dapodikId);
+    if (!existing) {
+      students.created += 1;
+      continue;
+    }
+    const changed = existing.nis !== incoming.nis
+      || existing.nisn !== incoming.nisn
+      || existing.name !== incoming.name
+      || existing.gender !== incoming.gender
+      || existing.religion !== incoming.religion
+      || existing.className !== incoming.className
+      || JSON.stringify(normalizeElectiveSubjects(existing.electiveSubjects)) !== JSON.stringify(normalizeElectiveSubjects(incoming.electiveSubjects))
+      || existing.dapodikId !== incoming.dapodikId;
+    if (changed) students.updated += 1;
+    else students.unchanged += 1;
+  }
+
+  students.missingInDapodik = store.students.filter((student) => student.dapodikId && !dapodikStudentKeys.has(student.dapodikId)).length;
+
+  for (const incoming of snapshot.teachers) {
+    const existing = findExistingDapodikTeacher(store, incoming);
+    if (!existing) teachers.created += 1;
+    else if (existing.name !== incoming.name || existing.dapodikId !== incoming.dapodikId) teachers.updated += 1;
+    else teachers.unchanged += 1;
+  }
+
+  return { students, teachers, classes: { total: snapshot.classes.length } };
+}
+
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString("hex");
   const iterations = 120000;
@@ -560,7 +871,9 @@ function syncStudentUser(store, student) {
     name: student.name,
     username: student.username,
     password: hashPassword(student.password),
-    className: student.className
+    className: student.className,
+    dapodikId: student.dapodikId || "",
+    dapodikSyncedAt: student.dapodikSyncedAt || null
   };
   const user = store.users.find((item) => item.id === student.id);
   if (user) Object.assign(user, userPayload);
@@ -593,6 +906,8 @@ function normalizeStore(store) {
 
   for (const user of store.users) {
     if (user.role === "guru") user.subjects = normalizeTeacherSubjects(user.subjects);
+    user.dapodikId ||= "";
+    user.dapodikSyncedAt ??= null;
   }
 
   for (const attempt of store.attempts) {
@@ -627,18 +942,35 @@ function normalizeStore(store) {
   for (const question of store.questions) {
     question.type ||= "multiple_choice";
     question.image ||= "";
+    question.imageSize = normalizeImageSize(question.imageSize);
     question.options = Array.isArray(question.options) ? question.options : [];
+    question.options = question.options.map((option) => ({ ...option, imageSize: normalizeImageSize(option.imageSize) }));
     question.correctAnswers = Array.isArray(question.correctAnswers) ? question.correctAnswers : [];
     question.statements = Array.isArray(question.statements) ? question.statements : [];
+    question.statements = question.statements.map((statement) => ({ ...statement, imageSize: normalizeImageSize(statement.imageSize) }));
     question.pairs = Array.isArray(question.pairs) ? question.pairs : [];
+    question.pairs = question.pairs.map((pair) => ({
+      ...pair,
+      leftImageSize: normalizeImageSize(pair.leftImageSize),
+      rightImageSize: normalizeImageSize(pair.rightImageSize)
+    }));
     question.shortAnswers = Array.isArray(question.shortAnswers) ? question.shortAnswers : [];
-    question.answerRules ||= { caseSensitive: false, ignorePunctuation: true, trimSpaces: true };
+    question.answerRules = {
+      caseSensitive: false,
+      ignorePunctuation: true,
+      trimSpaces: true,
+      matchingMode: "drag",
+      ...(question.answerRules || {})
+    };
+    question.answerRules.matchingMode = question.answerRules.matchingMode === "dropdown" ? "dropdown" : "drag";
     question.score = Number(question.score || 1);
   }
 
   for (const student of store.students) {
     student.electiveSubjects = normalizeElectiveSubjects(student.electiveSubjects);
     student.religion = readReligion(student);
+    student.dapodikId ||= "";
+    student.dapodikSyncedAt ??= null;
   }
 
   const now = Date.now();
@@ -828,6 +1160,11 @@ const FULL_PAYLOAD_HARD_LIMIT_BYTES = Number(process.env.EXAM_PAYLOAD_HARD_LIMIT
 const PROGRESSIVE_PARTICIPANT_LIMIT = Number(process.env.EXAM_PROGRESSIVE_PARTICIPANT_LIMIT || 100);
 const MASS_PARTICIPANT_LIMIT = Number(process.env.EXAM_MASS_PARTICIPANT_LIMIT || 300);
 const examQuestionCache = new Map();
+const IMAGE_SIZE_VALUES = new Set(["small", "medium", "large", "full"]);
+
+function normalizeImageSize(value) {
+  return IMAGE_SIZE_VALUES.has(String(value || "")) ? String(value) : "medium";
+}
 
 function clonePayload(value) {
   return JSON.parse(JSON.stringify(value));
@@ -848,6 +1185,8 @@ function questionPayloadSignature(question) {
     JSON.stringify(question.options || []).length,
     JSON.stringify(question.statements || []).length,
     JSON.stringify(question.pairs || []).length,
+    JSON.stringify(question.answerRules || {}).length,
+    question.imageSize || "",
     Number(question.score || 0)
   ].join(":");
 }
@@ -1491,11 +1830,13 @@ function cleanQuestionPayload(body) {
     type,
     body: String(body.body || "").trim(),
     image: String(body.image || ""),
+    imageSize: normalizeImageSize(body.imageSize),
     options: options
       .map((option) => ({
         key: String(option.key || "").trim().toUpperCase(),
         text: String(option.text || "").trim(),
-        image: String(option.image || "")
+        image: String(option.image || ""),
+        imageSize: normalizeImageSize(option.imageSize)
       }))
       .filter((option) => option.key && (option.text || option.image)),
     answerKey: String(body.answerKey || "").trim().toUpperCase(),
@@ -1504,6 +1845,7 @@ function cleanQuestionPayload(body) {
       id: String(statement.id || `st-${index + 1}`),
       text: String(statement.text || "").trim(),
       image: String(statement.image || ""),
+      imageSize: normalizeImageSize(statement.imageSize),
       answer: String(statement.answer || "true")
     })).filter((statement) => statement.text || statement.image) : [],
     pairs: Array.isArray(body.pairs) ? body.pairs.map((pair, index) => ({
@@ -1511,13 +1853,16 @@ function cleanQuestionPayload(body) {
       left: String(pair.left || "").trim(),
       right: String(pair.right || "").trim(),
       leftImage: String(pair.leftImage || ""),
-      rightImage: String(pair.rightImage || "")
+      rightImage: String(pair.rightImage || ""),
+      leftImageSize: normalizeImageSize(pair.leftImageSize),
+      rightImageSize: normalizeImageSize(pair.rightImageSize)
     })).filter((pair) => (pair.left || pair.leftImage) && (pair.right || pair.rightImage)) : [],
     shortAnswers: Array.isArray(body.shortAnswers) ? body.shortAnswers.map((item) => String(item || "").trim()).filter(Boolean) : [],
     answerRules: {
       caseSensitive: !!body.answerRules?.caseSensitive,
       ignorePunctuation: body.answerRules?.ignorePunctuation !== false,
-      trimSpaces: body.answerRules?.trimSpaces !== false
+      trimSpaces: body.answerRules?.trimSpaces !== false,
+      matchingMode: body.answerRules?.matchingMode === "dropdown" ? "dropdown" : "drag"
     },
     score: Number(String(body.score || 1).replace(",", "."))
   };
@@ -1565,8 +1910,13 @@ function safeQuestionForStudent(question) {
     safe.statements = (question.statements || []).map(({ answer, ...statement }) => statement);
   }
   if (question.type === "matching") {
+    safe.matchingMode = answerRules?.matchingMode === "dropdown" ? "dropdown" : "drag";
     safe.pairs = (question.pairs || []).map(({ right, rightImage, ...pair }) => pair);
-    safe.matchingOptions = (question.pairs || []).map((pair) => ({ value: pair.right, image: pair.rightImage || "" }));
+    safe.matchingOptions = (question.pairs || []).map((pair) => ({
+      value: pair.right,
+      image: pair.rightImage || "",
+      imageSize: normalizeImageSize(pair.rightImageSize)
+    }));
   }
   return safe;
 }
@@ -1863,6 +2213,133 @@ app.get("/api/students", allowRoles("admin", "guru", "pengawas"), async (_req, r
 app.get("/api/teachers", allowRoles("admin", "guru", "pengawas"), async (_req, res) => {
   const store = await readStore();
   res.json(store.users.filter((user) => user.role === "guru").map(publicUser).sort((a, b) => a.name.localeCompare(b.name, "id")));
+});
+
+app.post("/api/dapodik/test", allowRoles("admin"), async (req, res) => {
+  try {
+    const config = normalizeDapodikConfig(req.body);
+    const schoolRaw = await fetchDapodikResource("getSekolah", config);
+    const school = asArray(schoolRaw)[0] || schoolRaw || {};
+    res.json({
+      ok: true,
+      school: {
+        npsn: school.npsn || config.npsn,
+        name: school.nama || school.nama_sekolah || school.sekolah || "-"
+      }
+    });
+  } catch (error) {
+    res.status(400).json({ message: error.message || "Koneksi Dapodik gagal." });
+  }
+});
+
+app.post("/api/dapodik/preview", allowRoles("admin"), async (req, res) => {
+  try {
+    const store = await readStore();
+    const config = normalizeDapodikConfig(req.body);
+    const snapshot = await readDapodikSnapshot(config);
+    const preview = previewDapodikSync(store, snapshot);
+    res.json({
+      ok: true,
+      school: {
+        npsn: snapshot.school?.npsn || config.npsn,
+        name: snapshot.school?.nama || snapshot.school?.nama_sekolah || snapshot.school?.sekolah || "-"
+      },
+      preview
+    });
+  } catch (error) {
+    res.status(400).json({ message: error.message || "Preview Dapodik gagal." });
+  }
+});
+
+app.post("/api/dapodik/sync", allowRoles("admin"), async (req, res) => {
+  try {
+    const store = await readStore();
+    const config = normalizeDapodikConfig(req.body);
+    const snapshot = await readDapodikSnapshot(config);
+    const now = new Date().toISOString();
+    const result = {
+      students: { created: 0, updated: 0, skipped: 0 },
+      teachers: { created: 0, updated: 0, skipped: 0 }
+    };
+
+    for (const incoming of snapshot.students) {
+      if (!incoming.nis || !incoming.name) {
+        result.students.skipped += 1;
+        continue;
+      }
+      const existing = findExistingDapodikStudent(store, incoming);
+      if (existing) {
+        const preservedPassword = existing.password || createStudentPassword();
+        const preservedUsername = existing.username || uniqueUsername(store, incoming.nis || incoming.nisn || incoming.name, existing.id);
+        Object.assign(existing, {
+          nis: incoming.nis,
+          nisn: incoming.nisn,
+          name: incoming.name,
+          gender: incoming.gender,
+          religion: incoming.religion,
+          className: incoming.className,
+          room: existing.room || incoming.room || "-",
+          session: existing.session || incoming.session || "-",
+          username: preservedUsername,
+          password: preservedPassword,
+          electiveSubjects: incoming.electiveSubjects?.length ? incoming.electiveSubjects : (existing.electiveSubjects || []),
+          dapodikId: incoming.dapodikId,
+          dapodikSyncedAt: now
+        });
+        syncStudentUser(store, existing);
+        result.students.updated += 1;
+      } else {
+        const student = {
+          id: createId("s"),
+          ...incoming,
+          username: uniqueUsername(store, incoming.nis || incoming.nisn || incoming.name),
+          password: createStudentPassword(),
+          electiveSubjects: incoming.electiveSubjects || [],
+          dapodikSyncedAt: now
+        };
+        store.students.push(student);
+        syncStudentUser(store, student);
+        result.students.created += 1;
+      }
+    }
+
+    for (const incoming of snapshot.teachers) {
+      if (!incoming.name) {
+        result.teachers.skipped += 1;
+        continue;
+      }
+      const existing = findExistingDapodikTeacher(store, incoming);
+      if (existing) {
+        Object.assign(existing, {
+          name: incoming.name,
+          username: existing.username || uniqueUsername(store, incoming.usernameBase || incoming.name, existing.id),
+          subjects: existing.subjects || [],
+          dapodikId: incoming.dapodikId,
+          dapodikSyncedAt: now
+        });
+        result.teachers.updated += 1;
+      } else {
+        const teacher = {
+          id: createId("u-guru"),
+          role: "guru",
+          name: incoming.name,
+          username: uniqueUsername(store, incoming.usernameBase || incoming.name),
+          password: hashPassword(createStudentPassword(8)),
+          subjects: [],
+          dapodikId: incoming.dapodikId,
+          dapodikSyncedAt: now
+        };
+        store.users.push(teacher);
+        result.teachers.created += 1;
+      }
+    }
+
+    addAuditLog(store, req, "sync_dapodik", "dapodik", "dapodik", `Sinkron Dapodik selesai: ${result.students.created} siswa baru, ${result.students.updated} siswa diperbarui, ${result.teachers.created} guru baru, ${result.teachers.updated} guru diperbarui.`, result);
+    await writeStore(store);
+    res.json({ ok: true, result, preview: previewDapodikSync(store, snapshot) });
+  } catch (error) {
+    res.status(400).json({ message: error.message || "Sinkron Dapodik gagal." });
+  }
 });
 
 app.post("/api/teachers", allowRoles("admin"), async (req, res) => {
